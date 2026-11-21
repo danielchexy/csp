@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { GAME, QUALITY, BOMB } from "./config.js?v=csp49";
-import { WEAPON_BY_ID } from "./weapons.js?v=csp49";
-import { createWorld } from "./world.js?v=csp49";
-import { createInput, isTouchDevice } from "./input.js?v=csp49";
-import { SFX } from "./audio.js?v=csp49";
-import { createComposer } from "./fx.js?v=csp49";
+import { GAME, QUALITY, BOMB } from "./config.js?v=csp52";
+import { WEAPON_BY_ID } from "./weapons.js?v=csp52";
+import { createWorld } from "./world.js?v=csp52";
+import { createInput, isTouchDevice } from "./input.js?v=csp52";
+import { SFX } from "./audio.js?v=csp52";
+import { createComposer } from "./fx.js?v=csp52";
 import {
   createBot,
   createViewmodel,
@@ -14,7 +14,7 @@ import {
   punchViewmodel,
   preloadSoldiers,
   createC4Mesh,
-} from "./entities.js?v=csp49";
+} from "./entities.js?v=csp52";
 
 export function createGame({
   canvas,
@@ -212,7 +212,7 @@ export function createGame({
       const rz = -Math.sin(player.yaw);
       const pin = (e, ox, oz) => {
         if (!e) return;
-        e.mesh.position.set(player.pos.x + fx * 2.6 + rx * ox, 0, player.pos.z + fz * 2.6 + rz * oz);
+        e.mesh.position.set(player.pos.x + fx * 3.1 + rx * ox, 0, player.pos.z + fz * 3.1 + rz * oz);
         e.mesh.lookAt(player.pos.x, 0, player.pos.z);
         e.speed = 0;
         e.path = null;

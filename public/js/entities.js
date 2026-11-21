@@ -188,77 +188,109 @@ function dressSoldierBase(root, team) {
     o.castShadow = true;
     o.receiveShadow = true;
     o.frustumCulled = false;
+    // Bulk shoulder pads / body mesh — CS operator width
+    if (/shoulderpad/i.test(o.name || "")) o.scale.set(1.35, 1.5, 1.45);
+    if (/^body$/i.test(o.name || "")) o.scale.set(1.22, 1.08, 1.28);
+  });
+}
+
+/** Thicken limb bones (X/Z) — fuller arms/legs without growing height */
+function bulkUpBones(root) {
+  root.traverse((o) => {
+    if (!o.isBone) return;
+    const n = (o.name || "").toLowerCase();
+    if (/upperarm|lowerarm|forearm|shoulder\./.test(n)) {
+      o.scale.x *= 1.55;
+      o.scale.z *= 1.55;
+      o.scale.y *= 1.08;
+    } else if (/upperleg|lowerleg|leg\.|thigh|shin|foot/.test(n)) {
+      o.scale.x *= 1.42;
+      o.scale.z *= 1.42;
+      o.scale.y *= 1.05;
+    } else if (/hip|abdomen|torso|chest|spine/.test(n)) {
+      o.scale.x *= 1.28;
+      o.scale.z *= 1.22;
+    }
   });
 }
 
 /**
  * Full tactical kit in bone-local cm (Root scale≈100 → local 0.001 = 0.1m world).
- * Helmet + balaclava shell + plate carrier + pouches + pack.
+ * Oversized carrier/helm so mid-range reads operator bulk.
  */
 function attachOperatorKit(root, team) {
   const k = kitMats(team);
   const chest =
     findBone(root, /torso|chest/i) || findBone(root, /spine/i) || findBone(root, /abdomen/i);
   const head = findBone(root, /^head$/i) || findBone(root, /head/i);
-  // 0.001 local ≈ 0.1m world under Root×100
+  const shoulderL = findBone(root, /shoulder\.l/i);
+  const shoulderR = findBone(root, /shoulder\.r/i);
   const U = 0.001;
 
   if (head) {
-    // Hide stock head mesh under helm/mask
     root.traverse((o) => {
       if (o.isMesh && /^head$/i.test(o.name || "")) o.visible = false;
     });
     const kitG = new THREE.Group();
-    // Ballistic helm — local×100 ≈ world meters (Root scale)
-    const helmM = new THREE.Mesh(rb(2.4 * U, 1.1 * U, 2.6 * U, 0.2 * U), k.helm);
-    helmM.position.set(0, 1.2 * U, 0.15 * U);
-    const brim = new THREE.Mesh(rb(2.2 * U, 0.35 * U, 0.7 * U, 0.08 * U), k.helm);
-    brim.position.set(0, 0.55 * U, 1.1 * U);
-    const nvg = new THREE.Mesh(rb(0.9 * U, 0.45 * U, 0.8 * U, 0.08 * U), k.gunDark);
-    nvg.position.set(0, 1.55 * U, 0.9 * U);
-    // Balaclava / mask covering face
-    const mask = new THREE.Mesh(rb(2.0 * U, 1.6 * U, 1.8 * U, 0.25 * U), k.mask);
-    mask.position.set(0, 0.2 * U, 0.2 * U);
-    const goggles = new THREE.Mesh(rb(1.8 * U, 0.45 * U, 0.55 * U, 0.08 * U), k.gunDark);
-    goggles.position.set(0, 0.55 * U, 1.05 * U);
+    const helmM = new THREE.Mesh(rb(2.8 * U, 1.25 * U, 3.0 * U, 0.22 * U), k.helm);
+    helmM.position.set(0, 1.15 * U, 0.12 * U);
+    const brim = new THREE.Mesh(rb(2.5 * U, 0.4 * U, 0.8 * U, 0.08 * U), k.helm);
+    brim.position.set(0, 0.5 * U, 1.2 * U);
+    const nvg = new THREE.Mesh(rb(1.0 * U, 0.5 * U, 0.9 * U, 0.08 * U), k.gunDark);
+    nvg.position.set(0, 1.55 * U, 1.0 * U);
+    const mask = new THREE.Mesh(rb(2.3 * U, 1.8 * U, 2.0 * U, 0.28 * U), k.mask);
+    mask.position.set(0, 0.15 * U, 0.25 * U);
+    const goggles = new THREE.Mesh(rb(2.0 * U, 0.5 * U, 0.6 * U, 0.08 * U), k.gunDark);
+    goggles.position.set(0, 0.55 * U, 1.15 * U);
     kitG.add(helmM, brim, nvg, mask, goggles);
     if (k.isCT) {
-      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * U, 0.08 * U, 0.7 * U, 6), k.gunDark);
+      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * U, 0.09 * U, 0.75 * U, 6), k.gunDark);
       mic.rotation.z = Math.PI / 2;
-      mic.position.set(1.1 * U, 0.3 * U, 0.4 * U);
+      mic.position.set(1.2 * U, 0.25 * U, 0.45 * U);
       kitG.add(mic);
     } else {
-      const wrap = new THREE.Mesh(rb(2.3 * U, 0.6 * U, 1.5 * U, 0.15 * U), k.accent);
-      wrap.position.set(0, -0.5 * U, -0.1 * U);
+      const wrap = new THREE.Mesh(rb(2.6 * U, 0.7 * U, 1.7 * U, 0.15 * U), k.accent);
+      wrap.position.set(0, -0.55 * U, -0.1 * U);
       kitG.add(wrap);
     }
-    kitG.position.set(0, 0.5 * U, 0);
+    kitG.position.set(0, 0.45 * U, 0);
     head.add(kitG);
   }
 
   if (chest) {
     const vest = new THREE.Group();
-    // Plate carrier bulk
-    const carrier = new THREE.Mesh(rb(3.2 * U, 3.4 * U, 1.4 * U, 0.15 * U), k.vest);
-    carrier.position.set(0, 0.2 * U, 0.85 * U);
-    const plate = new THREE.Mesh(rb(2.2 * U, 2.6 * U, 0.45 * U, 0.08 * U), k.plate);
-    plate.position.set(0, 0.3 * U, 1.45 * U);
-    const band = new THREE.Mesh(rb(3.3 * U, 0.45 * U, 1.3 * U, 0.08 * U), k.accent);
-    band.position.set(0, -1.2 * U, 0.9 * U);
+    // Wide plate carrier — fills torso silhouette
+    const carrier = new THREE.Mesh(rb(4.2 * U, 3.8 * U, 1.8 * U, 0.18 * U), k.vest);
+    carrier.position.set(0, 0.15 * U, 0.95 * U);
+    const plate = new THREE.Mesh(rb(2.8 * U, 2.9 * U, 0.55 * U, 0.1 * U), k.plate);
+    plate.position.set(0, 0.25 * U, 1.7 * U);
+    const band = new THREE.Mesh(rb(4.3 * U, 0.5 * U, 1.6 * U, 0.1 * U), k.accent);
+    band.position.set(0, -1.35 * U, 1.0 * U);
     vest.add(carrier, plate, band);
     for (let i = -1; i <= 1; i++) {
-      const pouch = new THREE.Mesh(rb(0.75 * U, 0.9 * U, 0.55 * U, 0.08 * U), k.strap);
-      pouch.position.set(i * 0.85 * U, -1.5 * U, 1.55 * U);
+      const pouch = new THREE.Mesh(rb(0.95 * U, 1.1 * U, 0.7 * U, 0.1 * U), k.strap);
+      pouch.position.set(i * 1.05 * U, -1.65 * U, 1.85 * U);
       vest.add(pouch);
     }
-    const pack = new THREE.Mesh(rb(2.6 * U, 2.8 * U, 1.0 * U, 0.15 * U), k.vest);
-    pack.position.set(0, 0.2 * U, -1.1 * U);
+    const pack = new THREE.Mesh(rb(3.4 * U, 3.2 * U, 1.3 * U, 0.18 * U), k.vest);
+    pack.position.set(0, 0.15 * U, -1.35 * U);
     vest.add(pack);
-    const radio = new THREE.Mesh(rb(0.45 * U, 0.9 * U, 0.35 * U, 0.06 * U), k.gunDark);
-    radio.position.set(k.isCT ? 1.4 * U : -1.4 * U, 0.6 * U, -0.2 * U);
+    const radio = new THREE.Mesh(rb(0.55 * U, 1.0 * U, 0.4 * U, 0.06 * U), k.gunDark);
+    radio.position.set(k.isCT ? 1.7 * U : -1.7 * U, 0.55 * U, -0.15 * U);
     vest.add(radio);
-    vest.position.set(0, 0.5 * U, 0);
+    vest.position.set(0, 0.4 * U, 0);
     chest.add(vest);
+  }
+
+  // Deltoid / shoulder bulk
+  for (const [bone, side] of [
+    [shoulderL, -1],
+    [shoulderR, 1],
+  ]) {
+    if (!bone) continue;
+    const deltoid = new THREE.Mesh(rb(1.4 * U, 1.1 * U, 1.6 * U, 0.2 * U), k.vest);
+    deltoid.position.set(side * 0.9 * U, 0.2 * U, 0.2 * U);
+    bone.add(deltoid);
   }
 }
 
@@ -307,19 +339,28 @@ export function createBot(team = "t") {
 function createSoldierBot(team, gltf) {
   const g = new THREE.Group();
   const model = cloneSkinned(gltf.scene);
-  // Quaternius FBX: Root scale≈100 already brings cm→m.
+  // Widen X/Z for CS operator bulk; keep height near human.
+  model.scale.set(1.34, 1.08, 1.3);
   g.add(model);
 
   dressSoldierBase(model, team);
+  bulkUpBones(model);
+  // Shrink chibi head vs torso so silhouette reads adult operator
+  const headBone = findBone(model, /^head$/i) || findBone(model, /head/i);
+  if (headBone) {
+    headBone.scale.x *= 0.78;
+    headBone.scale.y *= 0.78;
+    headBone.scale.z *= 0.78;
+  }
   attachOperatorKit(model, team);
   const anim = wireSoldierAnims(model, gltf);
   anim.mixer.update(0.016);
 
   const hit = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.38, 1.25, 4, 8),
+    new THREE.CapsuleGeometry(0.48, 1.3, 4, 8),
     new THREE.MeshBasicMaterial({ visible: false })
   );
-  hit.position.y = 1.05;
+  hit.position.y = 1.1;
   hit.name = "hitbox";
   g.add(hit);
 
