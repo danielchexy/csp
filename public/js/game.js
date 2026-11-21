@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { GAME, QUALITY, BOMB } from "./config.js?v=csp31";
-import { WEAPON_BY_ID } from "./weapons.js?v=csp31";
-import { createWorld } from "./world.js?v=csp31";
-import { createInput, isTouchDevice } from "./input.js?v=csp31";
-import { SFX } from "./audio.js?v=csp31";
-import { createComposer } from "./fx.js?v=csp31";
+import { GAME, QUALITY, BOMB } from "./config.js?v=csp38";
+import { WEAPON_BY_ID } from "./weapons.js?v=csp38";
+import { createWorld } from "./world.js?v=csp38";
+import { createInput, isTouchDevice } from "./input.js?v=csp38";
+import { SFX } from "./audio.js?v=csp38";
+import { createComposer } from "./fx.js?v=csp38";
 import {
   createBot,
   createViewmodel,
@@ -14,7 +14,7 @@ import {
   punchViewmodel,
   preloadSoldiers,
   createC4Mesh,
-} from "./entities.js?v=csp31";
+} from "./entities.js?v=csp38";
 
 export function createGame({
   canvas,

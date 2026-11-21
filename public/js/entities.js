@@ -1,39 +1,56 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
-/** Shared CDN soldier (~2MB once) — three.js example Soldier.glb */
-const SOLDIER_URL = "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/Soldier.glb";
+/** Kenney CC0 blocky humans (not sci-fi Soldier.glb) — proper body scale */
+const KENNEY_BASE =
+  "https://cdn.jsdelivr.net/gh/shorepine/kenney@main/3d/blocky-characters/";
+const KENNEY_T = "character-a.glb";
+const KENNEY_CT = "character-m.glb";
 
-let soldierGltf = null;
+let kenneyT = null;
+let kenneyCT = null;
 let soldierPromise = null;
 
 export function preloadSoldiers() {
-  if (soldierGltf) return Promise.resolve(soldierGltf);
+  if (kenneyT && kenneyCT) return Promise.resolve(kenneyT);
   if (soldierPromise) return soldierPromise;
   soldierPromise = new Promise((resolve) => {
+    let left = 2;
     let settled = false;
-    const done = (v) => {
+    const done = () => {
       if (settled) return;
+      if (--left > 0) return;
       settled = true;
-      resolve(v);
+      resolve(kenneyT || kenneyCT);
     };
-    // Don't hang start() if CDN stalls (plant/nav still need __csp)
-    const timer = setTimeout(() => done(null), 8000);
-    new GLTFLoader().load(
-      SOLDIER_URL,
-      (gltf) => {
-        clearTimeout(timer);
-        soldierGltf = gltf;
-        done(gltf);
-      },
-      undefined,
-      () => {
-        clearTimeout(timer);
-        done(null);
-      }
-    );
+    const timer = setTimeout(() => {
+      settled = true;
+      resolve(kenneyT || kenneyCT);
+    }, 9000);
+    const loadOne = (file, assign) => {
+      const loader = new GLTFLoader();
+      loader.setResourcePath(KENNEY_BASE);
+      loader.load(
+        KENNEY_BASE + file,
+        (gltf) => {
+          assign(gltf);
+          clearTimeout(timer);
+          done();
+        },
+        undefined,
+        () => {
+          clearTimeout(timer);
+          done();
+        }
+      );
+    };
+    loadOne(KENNEY_T, (g) => {
+      kenneyT = g;
+    });
+    loadOne(KENNEY_CT, (g) => {
+      kenneyCT = g;
+    });
   });
   return soldierPromise;
 }
@@ -72,51 +89,56 @@ function kitMats(team) {
   const isCT = team === "ct";
   return {
     isCT,
-    // Bright enough for mid-range T tan vs CT navy read under daytime lighting
+    // Mid-range CS read: T desert tan / CT navy — solid, not black stickmen
     body: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x4a6280 : 0x9a7a55,
-      roughness: 0.88,
+      color: isCT ? 0x3d5168 : 0xa88860,
+      roughness: 0.86,
       metalness: 0.04,
-      envMapIntensity: 0.28,
+      envMapIntensity: 0.3,
     }),
     pants: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x2a3848 : 0x5a4835,
-      roughness: 0.92,
+      color: isCT ? 0x2c3a4a : 0x6a5640,
+      roughness: 0.9,
       metalness: 0.02,
-      envMapIntensity: 0.22,
+      envMapIntensity: 0.24,
     }),
     vest: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x243448 : 0x4a3c2c,
-      roughness: 0.78,
-      metalness: 0.1,
-      envMapIntensity: 0.3,
+      color: isCT ? 0x4a5c70 : 0x8a7048,
+      roughness: 0.72,
+      metalness: 0.12,
+      envMapIntensity: 0.36,
     }),
     helm: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x1e2a38 : 0x3a3224,
-      roughness: 0.68,
-      metalness: 0.16,
-      envMapIntensity: 0.32,
+      color: isCT ? 0x1a2430 : 0x3a3228,
+      roughness: 0.6,
+      metalness: 0.22,
+      envMapIntensity: 0.38,
     }),
     mask: new THREE.MeshStandardMaterial({
-      color: 0x1a1c18,
-      roughness: 0.9,
+      color: 0x1c1e1a,
+      roughness: 0.88,
       metalness: 0.03,
-      envMapIntensity: 0.18,
+      envMapIntensity: 0.2,
     }),
     accent: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x4a8acc : 0xd4a84a,
-      emissive: isCT ? 0x1a4068 : 0x5a3810,
-      emissiveIntensity: 0.18,
-      roughness: 0.65,
+      color: isCT ? 0x3a7ab8 : 0xc9a040,
+      emissive: isCT ? 0x102838 : 0x3a2808,
+      emissiveIntensity: 0.12,
+      roughness: 0.62,
       metalness: 0.08,
-      envMapIntensity: 0.3,
+      envMapIntensity: 0.28,
     }),
-    strap: MAT.strap,
+    strap: new THREE.MeshStandardMaterial({
+      color: 0x2a2824,
+      roughness: 0.88,
+      metalness: 0.05,
+      envMapIntensity: 0.2,
+    }),
     plate: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x3a4550 : 0x5a5045,
-      roughness: 0.5,
-      metalness: 0.35,
-      envMapIntensity: 0.4,
+      color: isCT ? 0x3a4652 : 0x5a5248,
+      roughness: 0.48,
+      metalness: 0.38,
+      envMapIntensity: 0.42,
     }),
     boot: MAT.boot,
     glove: MAT.glove,
@@ -125,178 +147,199 @@ function kitMats(team) {
   };
 }
 
-function findBone(root, re) {
+function findNamed(root, name) {
   let found = null;
   root.traverse((o) => {
-    if (!found && o.isBone && re.test(o.name)) found = o;
+    if (!found && o.name === name) found = o;
   });
   return found;
 }
 
-/** Paint CDN soldier matte CS + attach helm/vest/mask so T/CT read mid-range */
-function dressSoldierCS(model, team) {
+/**
+ * Paint Kenney human + tactical kit.
+ * Kenney layout: root → legs + torso; arms/head are children of torso.
+ * Torso mesh local Y∈[0.3,1.2] Z∈[-0.3,0.3]; head node scale 0.1.
+ */
+function dressKenneyOperator(root, team) {
   const k = kitMats(team);
-  const box = new THREE.Box3().setFromObject(model);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const minY = box.min.y;
-  const h = Math.max(0.01, size.y);
-
-  model.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    o.geometry?.computeBoundingBox?.();
-    const gb = o.geometry?.boundingBox;
-    let midY = 0.5;
-    if (gb) {
-      const wy = new THREE.Vector3();
-      o.localToWorld(wy.set(0, (gb.min.y + gb.max.y) * 0.5, 0));
-      midY = (wy.y - minY) / h;
-    }
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const n = (o.name || "").toLowerCase();
     let mat = k.body;
-    if (midY < 0.28) mat = k.pants;
-    else if (midY > 0.78) mat = k.mask;
-    else if (midY > 0.55 && midY < 0.78) mat = k.body;
-    else mat = k.body;
-    const name = (o.name || "").toLowerCase();
-    if (/head|face|helmet/.test(name)) mat = k.mask;
-    if (/leg|boot|foot|pant/.test(name)) mat = k.pants;
-    if (/arm|hand|glove/.test(name)) mat = k.body;
+    if (/leg/.test(n)) mat = k.pants;
+    else if (/head/.test(n)) mat = k.mask;
+    else if (/arm/.test(n)) mat = k.body;
+    else if (/torso/.test(n)) mat = k.body;
     o.material = mat;
     o.castShadow = true;
     o.receiveShadow = true;
   });
 
-  const mkHelm = () => {
-    const hg = new THREE.Group();
-    const helm = new THREE.Mesh(rb(0.26, 0.13, 0.3, 0.04), k.helm);
-    const brim = new THREE.Mesh(rb(0.22, 0.035, 0.09, 0.01), k.helm);
-    brim.position.set(0, -0.07, 0.11);
-    const visor = new THREE.Mesh(rb(0.2, 0.045, 0.06, 0.01), k.mask);
-    visor.position.set(0, -0.1, 0.1);
-    hg.add(helm, brim, visor);
-    if (k.isCT) {
-      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.11, 6), k.gunDark);
-      mic.rotation.z = Math.PI / 2;
-      mic.position.set(0.14, -0.08, 0.02);
-      hg.add(mic);
-    } else {
-      const wrap = new THREE.Mesh(rb(0.28, 0.08, 0.22, 0.03), k.accent);
-      wrap.position.set(0, -0.18, -0.02);
-      hg.add(wrap);
-    }
-    return hg;
-  };
-  const mkVest = () => {
-    const vg = new THREE.Group();
-    const carrier = new THREE.Mesh(rb(0.36, 0.38, 0.14, 0.02), k.vest);
-    const plate = new THREE.Mesh(rb(0.24, 0.28, 0.05, 0.01), k.plate);
-    plate.position.set(0, 0.02, 0.07);
-    const band = new THREE.Mesh(rb(0.38, 0.06, 0.16, 0.01), k.accent);
-    band.position.set(0, -0.16, 0.02);
-    vg.add(carrier, plate, band);
-    for (let i = -1; i <= 1; i++) {
-      const p = new THREE.Mesh(rb(0.075, 0.1, 0.055, 0.01), k.strap);
-      p.position.set(i * 0.09, -0.2, 0.09);
-      vg.add(p);
-    }
-    return vg;
-  };
+  const torso = findNamed(root, "torso") || root;
+  const head = findNamed(root, "head");
+  const armR = findNamed(root, "arm-right");
+  const armL = findNamed(root, "arm-left");
+  const legL = findNamed(root, "leg-left");
+  const legR = findNamed(root, "leg-right");
+  const attach = findNamed(root, "root") || root;
 
-  const headBone = findBone(model, /head/i);
-  const spineBone = findBone(model, /spine|chest|torso/i);
-  if (headBone) {
-    const hg = mkHelm();
-    hg.position.set(0, 0.1, 0.02);
-    headBone.add(hg);
-  } else {
-    const hg = mkHelm();
-    hg.position.set(0, 1.78, 0.02);
-    model.add(hg);
+  // Thicken limb silhouettes (Kenney boxes → operator bulk)
+  if (legL) legL.scale.set(1.55, 1, 1.55);
+  if (legR) legR.scale.set(1.55, 1, 1.55);
+  if (armL) armL.scale.set(1.4, 1.05, 1.4);
+  if (armR) armR.scale.set(1.4, 1.05, 1.4);
+  if (torso) torso.scale.x = 1.12;
+  // Shrink stock head into neck under helm (keep mass, lose cube silhouette)
+  if (head) head.scale.set(0.06, 0.05, 0.06);
+
+  // lookAt faces -Z at camera → chest kit on -Z, pack on +Z
+  const vest = new THREE.Group();
+  vest.add(new THREE.Mesh(rb(0.78, 0.62, 0.22, 0.03), k.vest));
+  const plate = new THREE.Mesh(rb(0.52, 0.48, 0.1, 0.02), k.plate);
+  plate.position.set(0, 0.02, -0.14);
+  vest.add(plate);
+  const band = new THREE.Mesh(rb(0.8, 0.11, 0.2, 0.015), k.accent);
+  band.position.set(0, -0.26, -0.02);
+  vest.add(band);
+  for (let i = -1; i <= 1; i++) {
+    const p = new THREE.Mesh(rb(0.15, 0.17, 0.13, 0.015), k.strap);
+    p.position.set(i * 0.17, -0.28, -0.16);
+    vest.add(p);
   }
-  if (spineBone) {
-    const vg = mkVest();
-    vg.position.set(0, 0.05, 0.08);
-    spineBone.add(vg);
+  vest.position.set(0, 0.75, -0.44);
+  torso.add(vest);
+
+  const pack = new THREE.Mesh(rb(0.58, 0.48, 0.2, 0.025), k.vest);
+  pack.position.set(0, 0.75, 0.48);
+  torso.add(pack);
+
+  // Helmet ABOVE head volume (head local top ≈ y 2.0)
+  const helmG = new THREE.Group();
+  const helm = new THREE.Mesh(rb(0.56, 0.28, 0.58, 0.05), k.helm);
+  const brim = new THREE.Mesh(rb(0.48, 0.07, 0.16, 0.015), k.helm);
+  brim.position.set(0, -0.12, -0.26);
+  const visor = new THREE.Mesh(rb(0.46, 0.11, 0.12, 0.015), k.mask);
+  visor.position.set(0, -0.16, -0.26);
+  const nvg = new THREE.Mesh(rb(0.2, 0.1, 0.16, 0.015), k.gunDark);
+  nvg.position.set(0, 0.1, -0.18);
+  const maskShell = new THREE.Mesh(rb(0.48, 0.4, 0.44, 0.04), k.mask);
+  maskShell.position.set(0, -0.36, -0.06);
+  helmG.add(helm, brim, visor, nvg, maskShell);
+  if (k.isCT) {
+    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.18, 6), k.gunDark);
+    mic.rotation.z = Math.PI / 2;
+    mic.position.set(0.28, -0.2, -0.05);
+    helmG.add(mic);
   } else {
-    const vg = mkVest();
-    vg.position.set(0, 1.28, 0.1);
-    model.add(vg);
+    const wrap = new THREE.Mesh(rb(0.58, 0.16, 0.4, 0.04), k.accent);
+    wrap.position.set(0, -0.32, 0.05);
+    helmG.add(wrap);
   }
-  // Team armband — mid-range T gold / CT blue
-  const armband = new THREE.Mesh(rb(0.1, 0.09, 0.055, 0.012), k.accent);
-  armband.position.set(k.isCT ? 0.3 : -0.3, 1.38, 0.02);
-  model.add(armband);
+  helmG.position.set(0, 2.28, -0.05);
+  torso.add(helmG);
+
+  // Boots at foot of each leg
+  for (const leg of [legL, legR]) {
+    if (!leg) continue;
+    const boot = new THREE.Mesh(rb(0.28, 0.16, 0.4, 0.03), k.boot);
+    boot.position.set(0, -0.95, 0.08);
+    leg.add(boot);
+  }
+
+  if (armR) {
+    const rifle = new THREE.Group();
+    rifle.position.set(-0.05, -0.55, 0.35);
+    rifle.rotation.set(-0.2, 0.5, 0.15);
+    const recv = new THREE.Mesh(rb(0.07, 0.09, 0.48, 0.008), k.gun);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.42, 8), k.gunDark);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.z = 0.4;
+    const stock = new THREE.Mesh(rb(0.055, 0.08, 0.22, 0.01), k.gun);
+    stock.position.z = -0.28;
+    const mag = new THREE.Mesh(rb(0.045, 0.18, 0.055, 0.008), k.gunDark);
+    mag.position.set(0, -0.11, 0.02);
+    rifle.add(recv, barrel, stock, mag);
+    armR.add(rifle);
+  }
+
+  if (armL) {
+    const band2 = new THREE.Mesh(rb(0.16, 0.14, 0.1, 0.015), k.accent);
+    band2.position.set(0.15, -0.25, 0.05);
+    armL.add(band2);
+  }
+
+  // Shoulder pads on torso
+  for (const side of [-1, 1]) {
+    const pad = new THREE.Mesh(rb(0.22, 0.14, 0.28, 0.03), k.vest);
+    pad.position.set(side * 0.48, 1.05, 0.05);
+    torso.add(pad);
+  }
+
+  return { torso, head, armL, armR, helmG, attach };
 }
 
-/**
- * CS operators — procedural tactical kits (human proportions, T/CT mid-range read).
- * Soldier.glb is sci-fi marine; kept for optional anim dress path when USE_CDN_SOLDIER.
- */
-const USE_CDN_SOLDIER = false;
-
-export function createBot(team = "t") {
-  if (USE_CDN_SOLDIER && soldierGltf?.scene) {
-    const g = new THREE.Group();
-    const model = cloneSkinned(soldierGltf.scene);
-    model.scale.setScalar(1.05);
-    model.rotation.y = Math.PI;
-    dressSoldierCS(model, team);
-    g.add(model);
-
-    const mixer = new THREE.AnimationMixer(model);
-    const clips = soldierGltf.animations || [];
-    const find = (name) => clips.find((c) => c.name.toLowerCase().includes(name));
-    const idleClip = find("idle") || clips[0];
-    const walkClip = find("walk") || find("run") || clips[1] || clips[0];
-    const actions = {
-      idle: idleClip ? mixer.clipAction(idleClip) : null,
-      walk: walkClip ? mixer.clipAction(walkClip) : null,
-    };
-    if (actions.idle) {
-      actions.idle.enabled = true;
-      actions.idle.setEffectiveWeight(1);
-      actions.idle.play();
-      mixer.update(1 / 30);
+function wireKenneyAnims(root, gltf) {
+  const mixer = new THREE.AnimationMixer(root);
+  const byName = {};
+  for (const clip of gltf.animations || []) byName[clip.name] = clip;
+  let current = null;
+  const play = (name) => {
+    const clip = byName[name] || byName.idle || gltf.animations?.[0];
+    if (!clip || current === name) return;
+    const next = mixer.clipAction(clip);
+    next.reset().fadeIn(0.15).play();
+    if (current) {
+      const prev = mixer.clipAction(byName[current] || clip);
+      prev.fadeOut(0.15);
     }
+    current = name;
+  };
+  play("idle");
+  return {
+    mixer,
+    setAnim: (name) => play(name === "walk" || name === true ? "walk" : "idle"),
+  };
+}
 
-    const hit = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.34, 1.25, 4, 8),
-      new THREE.MeshBasicMaterial({ visible: false })
-    );
-    hit.position.y = 1.05;
-    hit.name = "hitbox";
-    g.add(hit);
-
-    g.userData = {
-      team,
-      gltf: true,
-      mixer,
-      actions,
-      current: "idle",
-      setAnim(name) {
-        if (name === g.userData.current) return;
-        const next = actions[name];
-        const prev = actions[g.userData.current];
-        if (next) {
-          next.reset().fadeIn(0.15).play();
-          prev?.fadeOut(0.15);
-          g.userData.current = name;
-        }
-      },
-    };
-    g.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-        o.frustumCulled = true;
-      }
-    });
-    return g;
-  }
+/** Kenney human operator (T tan / CT navy). Falls back to chunky procedural. */
+export function createBot(team = "t") {
+  const src = team === "ct" ? kenneyCT || kenneyT : kenneyT || kenneyCT;
+  if (src) return createKenneyBot(team, src);
   return createProceduralBot(team);
 }
 
-/** Procedural CS operator — human proportions, tactical kit, Idle/Walk via updateBotPose */
+function createKenneyBot(team, gltf) {
+  const g = new THREE.Group();
+  const model = gltf.scene.clone(true);
+  // Kenney blocky humans are ~2 units tall; lookAt in spawn faces -Z at camera
+  model.scale.setScalar(0.95);
+  g.add(model);
+
+  const parts = dressKenneyOperator(model, team);
+  const anim = wireKenneyAnims(model, gltf);
+
+  const hit = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 1.4, 4, 8),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  hit.position.y = 1.1;
+  hit.name = "hitbox";
+  g.add(hit);
+
+  g.userData = {
+    gltf: true,
+    mixer: anim.mixer,
+    setAnim: anim.setAnim,
+    legL: findNamed(model, "leg-left"),
+    legR: findNamed(model, "leg-right"),
+    armL: parts.armL,
+    armR: parts.armR,
+    head: parts.head,
+    team,
+  };
+  return g;
+}
+
 function createProceduralBot(team = "t") {
   const g = new THREE.Group();
   const k = kitMats(team);
@@ -305,143 +348,150 @@ function createProceduralBot(team = "t") {
   const vest = k.vest;
   const helmM = k.helm;
 
-  // ~1.78m operator — longer legs, narrower shoulders than toy proportions
-  const legL = limb(0.065, 0.92, pants, 8);
-  legL.position.set(-0.095, 0.5, 0);
+  // Extra-chunky CS scale — legs/arms read as flesh not sticks at mid range
+  const legL = limb(0.16, 0.9, pants, 10);
+  legL.position.set(-0.17, 0.5, 0);
   legL.name = "legL";
-  const legR = limb(0.065, 0.92, pants, 8);
-  legR.position.set(0.095, 0.5, 0);
+  const legR = limb(0.16, 0.9, pants, 10);
+  legR.position.set(0.17, 0.5, 0);
   legR.name = "legR";
 
-  const kneeL = new THREE.Mesh(rb(0.085, 0.1, 0.1, 0.02), k.strap);
-  kneeL.position.set(-0.095, 0.44, 0.02);
+  const thighPadL = new THREE.Mesh(rb(0.22, 0.28, 0.18, 0.03), vest);
+  thighPadL.position.set(-0.17, 0.64, 0.05);
+  const thighPadR = thighPadL.clone();
+  thighPadR.position.x = 0.17;
+
+  const kneeL = new THREE.Mesh(rb(0.18, 0.14, 0.16, 0.025), k.strap);
+  kneeL.position.set(-0.17, 0.4, 0.04);
   const kneeR = kneeL.clone();
-  kneeR.position.x = 0.095;
+  kneeR.position.x = 0.17;
 
-  const bootL = new THREE.Mesh(rb(0.095, 0.12, 0.26, 0.02), k.boot);
-  bootL.position.set(-0.095, 0.07, 0.05);
+  const bootL = new THREE.Mesh(rb(0.18, 0.16, 0.36, 0.03), k.boot);
+  bootL.position.set(-0.17, 0.09, 0.07);
   const bootR = bootL.clone();
-  bootR.position.x = 0.095;
+  bootR.position.x = 0.17;
 
-  const hips = new THREE.Mesh(rb(0.3, 0.15, 0.17, 0.025), pants);
+  const hips = new THREE.Mesh(rb(0.52, 0.24, 0.3, 0.04), pants);
   hips.position.set(0, 0.96, 0);
-  const belt = new THREE.Mesh(rb(0.32, 0.05, 0.19, 0.01), k.strap);
-  belt.position.set(0, 1.04, 0);
+  const belt = new THREE.Mesh(rb(0.56, 0.08, 0.32, 0.015), k.strap);
+  belt.position.set(0, 1.08, 0);
 
-  const torso = new THREE.Mesh(rb(0.32, 0.42, 0.19, 0.03), suit);
-  torso.position.set(0, 1.3, 0);
+  const torso = new THREE.Mesh(rb(0.54, 0.52, 0.32, 0.05), suit);
+  torso.position.set(0, 1.34, 0);
   torso.name = "torso";
 
-  const carrier = new THREE.Mesh(rb(0.34, 0.38, 0.13, 0.015), vest);
-  carrier.position.set(0, 1.32, 0.11);
-  const plateFront = new THREE.Mesh(rb(0.23, 0.27, 0.045, 0.008), k.plate);
-  plateFront.position.set(0, 1.34, 0.175);
-  const plateBack = new THREE.Mesh(rb(0.3, 0.34, 0.08, 0.015), vest);
-  plateBack.position.set(0, 1.3, -0.11);
-  const teamBand = new THREE.Mesh(rb(0.36, 0.055, 0.14, 0.01), k.accent);
-  teamBand.position.set(0, 1.14, 0.12);
-  const strapL = new THREE.Mesh(rb(0.05, 0.32, 0.035, 0.008), k.strap);
-  strapL.position.set(-0.11, 1.52, 0.02);
+  const carrier = new THREE.Mesh(rb(0.58, 0.5, 0.22, 0.03), vest);
+  carrier.position.set(0, 1.36, 0.12);
+  const plateFront = new THREE.Mesh(rb(0.38, 0.38, 0.08, 0.015), k.plate);
+  plateFront.position.set(0, 1.38, 0.22);
+  const plateBack = new THREE.Mesh(rb(0.5, 0.44, 0.12, 0.025), vest);
+  plateBack.position.set(0, 1.34, -0.14);
+  const teamBand = new THREE.Mesh(rb(0.6, 0.08, 0.22, 0.015), k.accent);
+  teamBand.position.set(0, 1.14, 0.14);
+  const strapL = new THREE.Mesh(rb(0.09, 0.4, 0.06, 0.012), k.strap);
+  strapL.position.set(-0.16, 1.56, 0.02);
   const strapR = strapL.clone();
-  strapR.position.x = 0.11;
+  strapR.position.x = 0.16;
 
   const pouchRow = new THREE.Group();
   for (let i = -1; i <= 1; i++) {
-    const p = new THREE.Mesh(rb(0.07, 0.095, 0.055, 0.01), k.strap);
-    p.position.set(i * 0.085, 1.1, 0.19);
+    const p = new THREE.Mesh(rb(0.12, 0.14, 0.1, 0.015), k.strap);
+    p.position.set(i * 0.14, 1.12, 0.24);
     pouchRow.add(p);
   }
-  const radio = new THREE.Mesh(rb(0.055, 0.12, 0.04, 0.01), k.gunDark);
-  radio.position.set(k.isCT ? 0.16 : -0.16, 1.22, -0.02);
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.18, 5), k.gun);
-  antenna.position.set(radio.position.x, 1.36, -0.02);
+  const radio = new THREE.Mesh(rb(0.08, 0.16, 0.06, 0.012), k.gunDark);
+  radio.position.set(k.isCT ? 0.24 : -0.24, 1.26, -0.02);
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 6), k.gun);
+  antenna.position.set(radio.position.x, 1.42, -0.02);
 
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.06, 0.1, 8), k.mask);
-  neck.position.set(0, 1.54, 0);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), k.mask);
-  head.position.set(0, 1.7, 0);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.14, 10), k.mask);
+  neck.position.set(0, 1.62, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 12), k.mask);
+  head.position.set(0, 1.8, 0);
   head.name = "head";
-  head.scale.set(0.9, 1.1, 0.95);
+  head.scale.set(0.95, 1.1, 1);
 
-  const helm = new THREE.Mesh(rb(0.25, 0.125, 0.29, 0.04), helmM);
-  helm.position.set(0, 1.8, 0.01);
-  const brim = new THREE.Mesh(rb(0.21, 0.03, 0.085, 0.01), helmM);
-  brim.position.set(0, 1.73, 0.125);
-  const visor = new THREE.Mesh(rb(0.2, 0.04, 0.055, 0.01), k.mask);
-  visor.position.set(0, 1.71, 0.115);
+  const helm = new THREE.Mesh(rb(0.4, 0.2, 0.42, 0.05), helmM);
+  helm.position.set(0, 1.94, 0.02);
+  const brim = new THREE.Mesh(rb(0.34, 0.05, 0.12, 0.015), helmM);
+  brim.position.set(0, 1.84, 0.18);
+  const visor = new THREE.Mesh(rb(0.32, 0.07, 0.08, 0.012), k.mask);
+  visor.position.set(0, 1.82, 0.17);
+  const nvg = new THREE.Mesh(rb(0.14, 0.07, 0.12, 0.015), k.gunDark);
+  nvg.position.set(0, 1.98, 0.14);
 
   if (k.isCT) {
-    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.1, 6), k.gunDark);
+    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.12, 6), k.gunDark);
     mic.rotation.z = Math.PI / 2;
-    mic.position.set(0.14, 1.69, 0.02);
+    mic.position.set(0.17, 1.74, 0.03);
     g.add(mic);
   } else {
-    const wrap = new THREE.Mesh(rb(0.27, 0.075, 0.2, 0.03), k.accent);
-    wrap.position.set(0, 1.6, -0.02);
+    const wrap = new THREE.Mesh(rb(0.34, 0.1, 0.26, 0.04), k.accent);
+    wrap.position.set(0, 1.64, -0.02);
     g.add(wrap);
   }
 
-  const shoulderL = new THREE.Mesh(rb(0.11, 0.07, 0.13, 0.025), vest);
-  shoulderL.position.set(-0.21, 1.5, 0);
+  const shoulderL = new THREE.Mesh(rb(0.2, 0.14, 0.22, 0.035), vest);
+  shoulderL.position.set(-0.34, 1.56, 0);
   const shoulderR = shoulderL.clone();
-  shoulderR.position.x = 0.21;
+  shoulderR.position.x = 0.34;
 
-  const armband = new THREE.Mesh(rb(0.09, 0.085, 0.05, 0.012), k.accent);
-  armband.position.set(k.isCT ? 0.29 : -0.29, 1.4, 0.02);
+  const armband = new THREE.Mesh(rb(0.14, 0.12, 0.08, 0.015), k.accent);
+  armband.position.set(k.isCT ? 0.42 : -0.42, 1.42, 0.02);
 
   const armL = new THREE.Group();
   armL.name = "armL";
-  armL.position.set(-0.25, 1.46, 0);
-  const upperL = limb(0.048, 0.38, suit, 8);
-  upperL.position.y = -0.14;
-  const lowerL = limb(0.042, 0.36, suit, 8);
-  lowerL.position.y = -0.44;
-  const handL = new THREE.Mesh(rb(0.06, 0.07, 0.09, 0.015), k.glove);
-  handL.position.y = -0.62;
+  armL.position.set(-0.38, 1.52, 0);
+  const upperL = limb(0.13, 0.42, suit, 10);
+  upperL.position.y = -0.16;
+  const lowerL = limb(0.115, 0.4, suit, 10);
+  lowerL.position.y = -0.48;
+  const handL = new THREE.Mesh(rb(0.11, 0.12, 0.14, 0.02), k.glove);
+  handL.position.y = -0.7;
   armL.add(upperL, lowerL, handL);
 
   const armR = new THREE.Group();
   armR.name = "armR";
-  armR.position.set(0.25, 1.46, 0);
-  const upperR = limb(0.048, 0.38, suit, 8);
-  upperR.position.y = -0.14;
-  const lowerR = limb(0.042, 0.36, suit, 8);
-  lowerR.position.y = -0.44;
-  const handR = new THREE.Mesh(rb(0.06, 0.07, 0.09, 0.015), k.glove);
-  handR.position.y = -0.62;
+  armR.position.set(0.38, 1.52, 0);
+  const upperR = limb(0.13, 0.42, suit, 10);
+  upperR.position.y = -0.16;
+  const lowerR = limb(0.115, 0.4, suit, 10);
+  lowerR.position.y = -0.48;
+  const handR = new THREE.Mesh(rb(0.11, 0.12, 0.14, 0.02), k.glove);
+  handR.position.y = -0.7;
 
   const rifle = new THREE.Group();
-  rifle.position.set(0.02, -0.52, 0.18);
-  rifle.rotation.set(-0.12, 0.45, 0.1);
-  const recv = new THREE.Mesh(rb(0.045, 0.065, 0.36, 0.006), k.gun);
-  const upperRail = new THREE.Mesh(rb(0.04, 0.03, 0.3, 0.004), k.gunDark);
-  upperRail.position.set(0, 0.045, -0.02);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.38, 8), k.gunDark);
+  rifle.position.set(0.02, -0.55, 0.2);
+  rifle.rotation.set(-0.1, 0.4, 0.08);
+  const recv = new THREE.Mesh(rb(0.05, 0.07, 0.4, 0.008), k.gun);
+  const upperRail = new THREE.Mesh(rb(0.045, 0.035, 0.32, 0.005), k.gunDark);
+  upperRail.position.set(0, 0.05, -0.02);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.015, 0.4, 8), k.gunDark);
   barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = 0.32;
-  const stock = new THREE.Mesh(rb(0.04, 0.055, 0.18, 0.008), k.gun);
-  stock.position.z = -0.22;
-  const mag = new THREE.Mesh(rb(0.032, 0.14, 0.045, 0.006), k.gunDark);
-  mag.position.set(0, -0.08, 0.02);
-  const grip = new THREE.Mesh(rb(0.035, 0.1, 0.05, 0.006), k.gunDark);
-  grip.position.set(0, -0.08, 0.12);
+  barrel.position.z = 0.34;
+  const stock = new THREE.Mesh(rb(0.045, 0.06, 0.2, 0.01), k.gun);
+  stock.position.z = -0.24;
+  const mag = new THREE.Mesh(rb(0.035, 0.15, 0.05, 0.008), k.gunDark);
+  mag.position.set(0, -0.09, 0.02);
+  const grip = new THREE.Mesh(rb(0.04, 0.11, 0.055, 0.008), k.gunDark);
+  grip.position.set(0, -0.09, 0.12);
   grip.rotation.x = 0.35;
   rifle.add(recv, upperRail, barrel, stock, mag, grip);
   armR.add(upperR, lowerR, handR, rifle);
 
   g.add(
-    legL, legR, kneeL, kneeR, bootL, bootR,
+    legL, legR, thighPadL, thighPadR, kneeL, kneeR, bootL, bootR,
     hips, belt, torso, carrier, plateFront, plateBack, teamBand,
     strapL, strapR, pouchRow, radio, antenna, armband,
-    shoulderL, shoulderR, neck, head, helm, brim, visor,
+    shoulderL, shoulderR, neck, head, helm, brim, visor, nvg,
     armL, armR
   );
 
   const hit = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.34, 1.3, 4, 8),
+    new THREE.CapsuleGeometry(0.4, 1.35, 4, 8),
     new THREE.MeshBasicMaterial({ visible: false })
   );
-  hit.position.y = 1.08;
+  hit.position.y = 1.1;
   hit.name = "hitbox";
   g.add(hit);
 
@@ -456,89 +506,87 @@ function createProceduralBot(team = "t") {
   return g;
 }
 
-/** CS C4 brick — olive block, tape straps, keypad, LED, antenna */
+/** Classic CS C4 — olive drab brick, grey duct tape, black keypad, red LED, antenna */
 export function createC4Mesh() {
   const g = new THREE.Group();
   const olive = new THREE.MeshStandardMaterial({
-    color: 0x5a6a38,
-    roughness: 0.8,
-    metalness: 0.06,
-    envMapIntensity: 0.28,
+    color: 0x3a452c,
+    roughness: 0.84,
+    metalness: 0.05,
+    envMapIntensity: 0.22,
   });
+  // Grey duct tape — not yellow
   const tape = new THREE.MeshStandardMaterial({
-    color: 0xf0d878,
-    roughness: 0.65,
-    metalness: 0.03,
-    envMapIntensity: 0.25,
+    color: 0x8a8880,
+    roughness: 0.72,
+    metalness: 0.08,
+    envMapIntensity: 0.2,
   });
   const plastic = new THREE.MeshStandardMaterial({
-    color: 0x1a1c18,
-    roughness: 0.55,
-    metalness: 0.15,
-    envMapIntensity: 0.3,
+    color: 0x141612,
+    roughness: 0.5,
+    metalness: 0.12,
+    envMapIntensity: 0.28,
   });
   const metal = new THREE.MeshStandardMaterial({
-    color: 0x4a5058,
-    roughness: 0.4,
+    color: 0x5a6068,
+    roughness: 0.38,
     metalness: 0.55,
-    envMapIntensity: 0.45,
+    envMapIntensity: 0.4,
   });
 
-  // Main charge brick
-  const body = new THREE.Mesh(rb(0.5, 0.15, 0.34, 0.02), olive);
-  body.position.y = 0.075;
-  // Wide duct-tape straps (readable from plant cam)
-  const strapA = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.045, 0.09), tape);
-  strapA.position.set(0, 0.135, -0.07);
-  const strapB = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.045, 0.09), tape);
-  strapB.position.set(0, 0.135, 0.09);
-  const strapC = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.045, 0.36), tape);
-  strapC.position.set(-0.14, 0.135, 0);
-  const strapD = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.045, 0.36), tape);
-  strapD.position.set(0.05, 0.135, 0);
-  // Keypad / detonator brick
-  const pad = new THREE.Mesh(rb(0.16, 0.05, 0.14, 0.008), plastic);
-  pad.position.set(0.12, 0.155, 0.02);
-  // LED
+  // Dual charge packs (CS silhouette)
+  const body = new THREE.Mesh(rb(0.42, 0.13, 0.28, 0.015), olive);
+  body.position.set(-0.02, 0.07, 0);
+  const body2 = new THREE.Mesh(rb(0.2, 0.12, 0.26, 0.015), olive);
+  body2.position.set(0.18, 0.068, 0);
+  // Grey duct-tape wraps
+  const strapA = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.04, 0.07), tape);
+  strapA.position.set(0.04, 0.125, -0.05);
+  const strapB = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.04, 0.07), tape);
+  strapB.position.set(0.04, 0.125, 0.07);
+  const strapC = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.3), tape);
+  strapC.position.set(-0.14, 0.125, 0);
+  const strapD = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.3), tape);
+  strapD.position.set(0.12, 0.125, 0);
+  // Black keypad / detonator panel
+  const pad = new THREE.Mesh(rb(0.14, 0.045, 0.12, 0.006), plastic);
+  pad.position.set(0.14, 0.15, 0.01);
   const ledMat = new THREE.MeshStandardMaterial({
     color: 0xff2200,
-    emissive: 0xff3300,
-    emissiveIntensity: 1.2,
-    roughness: 0.4,
+    emissive: 0xff2200,
+    emissiveIntensity: 1.4,
+    roughness: 0.35,
     metalness: 0.1,
     toneMapped: false,
   });
-  const led = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), ledMat);
-  led.position.set(0.18, 0.185, 0.06);
-  // Keypad buttons (3×3 hint)
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.012, 0.02), ledMat);
+  led.position.set(0.18, 0.175, 0.045);
   const keys = new THREE.Group();
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 3; c++) {
-      const key = new THREE.Mesh(rb(0.028, 0.01, 0.028, 0.004), metal);
-      key.position.set(0.06 + c * 0.035, 0.178, -0.02 + r * 0.035);
+      const key = new THREE.Mesh(rb(0.022, 0.008, 0.022, 0.003), metal);
+      key.position.set(0.09 + c * 0.028, 0.172, -0.025 + r * 0.028);
       keys.add(key);
     }
   }
-  // Antenna
-  const antBase = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.04, 8), metal);
-  antBase.position.set(-0.16, 0.16, -0.08);
-  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.008, 0.28, 6), metal);
-  ant.position.set(-0.16, 0.3, -0.08);
-  ant.rotation.z = 0.15;
-  // Wire
-  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.12, 5), plastic);
+  const antBase = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.03, 8), metal);
+  antBase.position.set(-0.14, 0.145, -0.08);
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.007, 0.22, 6), metal);
+  ant.position.set(-0.14, 0.26, -0.08);
+  ant.rotation.z = 0.12;
+  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.1, 5), plastic);
   wire.rotation.z = Math.PI / 2;
-  wire.position.set(-0.02, 0.15, -0.08);
+  wire.position.set(-0.02, 0.14, -0.08);
 
-  // Soft LED fill — avoid huge floor light blades
-  const light = new THREE.PointLight(0xff4400, 0.55, 3.5, 2);
-  light.position.set(0.18, 0.22, 0.06);
+  const light = new THREE.PointLight(0xff3300, 0.35, 2.8, 2);
+  light.position.set(0.18, 0.2, 0.05);
 
-  g.add(body, strapA, strapB, strapC, strapD, pad, led, keys, antBase, ant, wire, light);
+  g.add(body, body2, strapA, strapB, strapC, strapD, pad, led, keys, antBase, ant, wire, light);
   g.userData.light = light;
   g.userData.led = led;
   g.userData.ledMat = ledMat;
-  g.rotation.set(0.08, 0.35, -0.04);
+  g.rotation.set(0.06, 0.25, -0.03);
   return g;
 }
 
