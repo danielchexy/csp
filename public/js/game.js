@@ -1,37 +1,20 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { GAME, QUALITY, BOMB } from "./config.js?v=csp27";
-import { WEAPON_BY_ID } from "./weapons.js?v=csp27";
-import { createWorld } from "./world.js?v=csp27";
-import { createInput, isTouchDevice } from "./input.js?v=csp27";
-import { SFX } from "./audio.js?v=csp27";
-import { createComposer } from "./fx.js?v=csp27";
-import { createBot, createViewmodel, updateBotPose, updateViewmodel, punchViewmodel, preloadSoldiers } from "./entities.js?v=csp27";
-
-function makeBombMesh() {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.28, 0.4),
-    new THREE.MeshStandardMaterial({
-      color: 0x2a2e24,
-      metalness: 0.5,
-      roughness: 0.45,
-      emissive: 0x662200,
-      emissiveIntensity: 0.55,
-    })
-  );
-  const light = new THREE.PointLight(0xff4400, 2.2, 12, 2);
-  light.position.y = 0.25;
-  const beacon = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 10, 8),
-    new THREE.MeshBasicMaterial({ color: 0xff3300, toneMapped: false })
-  );
-  beacon.position.y = 0.22;
-  g.add(body, light, beacon);
-  g.userData.light = light;
-  g.userData.beacon = beacon;
-  return g;
-}
+import { GAME, QUALITY, BOMB } from "./config.js?v=csp31";
+import { WEAPON_BY_ID } from "./weapons.js?v=csp31";
+import { createWorld } from "./world.js?v=csp31";
+import { createInput, isTouchDevice } from "./input.js?v=csp31";
+import { SFX } from "./audio.js?v=csp31";
+import { createComposer } from "./fx.js?v=csp31";
+import {
+  createBot,
+  createViewmodel,
+  updateBotPose,
+  updateViewmodel,
+  punchViewmodel,
+  preloadSoldiers,
+  createC4Mesh,
+} from "./entities.js?v=csp31";
 
 export function createGame({
   canvas,
@@ -214,10 +197,34 @@ export function createGame({
         // Applied after __csp pump exists — stash for start()
         player._captureAdvance = adv;
       }
+      // Capture: place showcase bots in front of camera (#bots=1)
+      if (h.get("bots") === "1") {
+        player._captureBots = true;
+      }
     } catch {
       /* ignore bad hash */
     }
     spawnBots();
+    if (player._captureBots) {
+      const fx = -Math.sin(player.yaw);
+      const fz = -Math.cos(player.yaw);
+      const rx = Math.cos(player.yaw);
+      const rz = -Math.sin(player.yaw);
+      const pin = (e, ox, oz) => {
+        if (!e) return;
+        e.mesh.position.set(player.pos.x + fx * 2.6 + rx * ox, 0, player.pos.z + fz * 2.6 + rz * oz);
+        e.mesh.lookAt(player.pos.x, 0, player.pos.z);
+        e.speed = 0;
+        e.path = null;
+        e.patrol = e.mesh.position.clone();
+        e.patrolT = 9999;
+        e.stuckT = 0;
+      };
+      // CT left, T right — mid-range team read
+      pin(enemies[0], -0.85, 0);
+      pin(allies[0] || enemies[1], 0.85, 0);
+      delete player._captureBots;
+    }
     pushHud();
   }
 
@@ -236,10 +243,16 @@ export function createGame({
       if (team === "ct") return `Bomb planted ${bomb.site} · DEFUSE (hold E) · ${fmt(bomb.fuseLeft)}`;
       return `Bomb planted ${bomb.site} · defend · ${fmt(bomb.fuseLeft)}`;
     }
-    if (bomb.holdAction === "plant") return `Planting… ${Math.floor((bomb.plantProgress / BOMB.plantTime) * 100)}%`;
-    if (bomb.holdAction === "defuse") return `Defusing… ${Math.floor((bomb.defuseProgress / BOMB.defuseTime) * 100)}%`;
-    if (team === "t") return `Plant bomb at A or B (hold E on site) · ${fmt(round.timeLeft)}`;
-    return `Stop the plant / defuse if planted · ${fmt(round.timeLeft)}`;
+    if (bomb.holdAction === "plant") {
+      const pct = Math.floor((bomb.plantProgress / BOMB.plantTime) * 100);
+      return `Planting C4… ${pct}% — keep holding E`;
+    }
+    if (bomb.holdAction === "defuse") {
+      const pct = Math.floor((bomb.defuseProgress / BOMB.defuseTime) * 100);
+      return `Defusing C4… ${pct}% — keep holding E`;
+    }
+    if (team === "t") return `Plant C4 at A or B (hold E on site) · ${fmt(round.timeLeft)}`;
+    return `Stop the plant / hold E on C4 to defuse · ${fmt(round.timeLeft)}`;
   }
 
   function pushHud(extra = {}) {
@@ -302,10 +315,13 @@ export function createGame({
     bomb.holdAction = null;
     if (bombMesh) {
       bombMesh.visible = true;
-      bombMesh.position.set(pos.x, 0.15, pos.z);
+      bombMesh.position.set(pos.x, 0.02, pos.z);
+      bombMesh.rotation.set(0.08, Math.random() * 0.6 - 0.3, -0.04);
+      if (bombMesh.userData.ledMat) bombMesh.userData.ledMat.emissiveIntensity = 1.6;
     }
     SFX.relay();
-    onToast?.(GAME.explore ? `Bomb planted at ${siteName} (explore — C4 live)` : `Bomb planted at ${siteName}`);
+    SFX.click();
+    onToast?.(GAME.explore ? `C4 planted ${siteName} — fuse live (explore)` : `C4 planted at ${siteName}`);
     pushHud();
   }
 
@@ -330,6 +346,8 @@ export function createGame({
   function defuseBomb() {
     bomb.state = "defused";
     if (bombMesh) bombMesh.visible = false;
+    SFX.relay();
+    onToast?.("C4 defused");
     endRound(team === "ct", team === "ct" ? "Bomb defused" : "Bomb defused — CTs win");
     if (GAME.explore) {
       bomb.state = team === "t" ? "carried" : "idle";
@@ -865,10 +883,11 @@ export function createGame({
     if (!round.over) {
       if (bomb.state === "planted") {
         bomb.fuseLeft -= dt;
-        if (bombMesh?.userData.light) {
-          bombMesh.userData.light.intensity = 0.6 + Math.sin(time * (bomb.fuseLeft < 10 ? 12 : 4)) * 0.8;
-        }
-        if (Math.floor(bomb.fuseLeft * 2) !== Math.floor((bomb.fuseLeft + dt) * 2) && bomb.fuseLeft < 15) {
+        const blinkHz = bomb.fuseLeft < 10 ? 8 : bomb.fuseLeft < 20 ? 4 : 2;
+        const pulse = 0.55 + 0.45 * Math.max(0, Math.sin(time * blinkHz * Math.PI * 2));
+        if (bombMesh?.userData.light) bombMesh.userData.light.intensity = 0.25 + pulse * 0.55;
+        if (bombMesh?.userData.ledMat) bombMesh.userData.ledMat.emissiveIntensity = 0.5 + pulse * 1.2;
+        if (Math.floor(bomb.fuseLeft * blinkHz) !== Math.floor((bomb.fuseLeft + dt) * blinkHz) && bomb.fuseLeft < 20) {
           SFX.click();
         }
         if (bomb.fuseLeft <= 0) explodeBomb();
@@ -993,7 +1012,7 @@ export function createGame({
     gun = createViewmodel(weapon);
     camera.add(gun);
     world = createWorld(scene, q);
-    bombMesh = makeBombMesh();
+    bombMesh = createC4Mesh();
     bombMesh.visible = false;
     scene.add(bombMesh);
     applyQuality(q);
