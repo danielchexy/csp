@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#6a9cc8" />
+    <title>CSP</title>
+    <link rel="stylesheet" href="./css/style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+
+    <div id="hud">
+      <div class="damage-vignette" id="damage-vignette"></div>
+      <div class="crosshair"></div>
+      <div class="hud-top">
+        <div>
+          CSP · <span id="team-badge" data-team="t">T</span>
+        </div>
+        <div class="objective" id="objective">Plant or defuse</div>
+      </div>
+      <div class="hud-bottom">
+        <div>
+          <div style="font-size: 11px; color: #8aa0b5; margin-bottom: 4px">HP</div>
+          <div class="bar hp"><span id="hp-bar"></span></div>
+        </div>
+        <div class="weapon-ammo">
+          <div class="weapon-name" id="weapon-name">Glock-18</div>
+          <div class="ammo" id="ammo">20 / 120</div>
+        </div>
+      </div>
+    </div>
+
+    <button id="pause-btn" type="button">MENU</button>
+
+    <div class="touch-layer" id="touch-layer">
+      <div class="stick" id="stick"><div class="stick-knob" id="stick-knob"></div></div>
+      <div class="look-pad" id="look-pad"></div>
+      <button class="fire-btn" id="fire-btn" type="button">FIRE</button>
+      <button class="jump-btn" id="jump-btn" type="button">JUMP</button>
+      <button class="aim-btn" id="aim-btn" type="button">AIM</button>
+      <button class="use-btn" id="use-btn" type="button">USE</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="screen active" id="menu-screen">
+      <div class="panel">
+        <div class="brand">BROWSER FPS</div>
+        <h1>CSP</h1>
+        <p class="tagline">
+          Daytime bomb · T plant / CT defuse · buy guns · guest play.
+        </p>
+        <div class="loadout-chip" id="menu-loadout">Loadout · Glock-18</div>
+        <div class="stack">
+          <button class="btn primary team-t" id="btn-play-t" type="button">Play as Terrorist (T)</button>
+          <button class="btn primary team-ct" id="btn-play-ct" type="button">Play as Counter-Terrorist (CT)</button>
+          <button class="btn" id="btn-shop" type="button">Gun shop</button>
+          <button class="btn" id="btn-create-room" type="button">Create room (stub)</button>
+          <div class="field">
+            <label for="room-code-input">Join room code</label>
+            <input id="room-code-input" maxlength="8" placeholder="e.g. 7K2MP" autocomplete="off" />
+          </div>
+          <button class="btn" id="btn-join-room" type="button">Join room (stub)</button>
+          <button class="btn" id="btn-settings" type="button">Settings</button>
+          <button class="btn ghost" id="btn-fullscreen" type="button">Fullscreen</button>
+        </div>
+        <p class="hint">
+          E plant/defuse · 1 pistol · 2 rifle/SMG · 3 sniper/shotgun · R reload · RMB aim · LMB fire.
+        </p>
+      </div>
+    </div>
+
+    <div class="screen" id="shop-screen">
+      <div class="panel shop-panel">
+        <div class="brand">CSP</div>
+        <div class="shop-header">
+          <h1 style="font-size: 28px; margin: 0">Gun shop</h1>
+          <div class="coins" id="shop-coins">50,000 ¢</div>
+        </div>
+        <p class="tagline" style="margin-bottom: 10px">
+          50k ¢ starter wallet — buy anything. Equip before you play.
+        </p>
+        <div class="shop-tabs" id="shop-tabs">
+          <button class="shop-tab active" type="button" data-slot="all">All</button>
+          <button class="shop-tab" type="button" data-slot="pistol">Pistols</button>
+          <button class="shop-tab" type="button" data-slot="smg">SMGs</button>
+          <button class="shop-tab" type="button" data-slot="rifle">Rifles</button>
+          <button class="shop-tab" type="button" data-slot="sniper">Snipers</button>
+          <button class="shop-tab" type="button" data-slot="shotgun">Shotguns</button>
+        </div>
+        <div class="shop-list" id="shop-list"></div>
+        <div class="stack" style="margin-top: 12px">
+          <button class="btn ghost" id="btn-shop-back" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen" id="settings-screen">
+      <div class="panel">
+        <div class="brand">CSP</div>
+        <h1 style="font-size: 28px">Settings</h1>
+        <div class="stack" style="margin-top: 18px">
+          <div class="field">
+            <label for="quality-select">Graphics</label>
+            <select id="quality-select">
+              <option value="low">Low — phones</option>
+              <option value="med">Medium</option>
+              <option value="high" selected>High</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sens-range">Look sensitivity (<span id="sens-val">1.0</span>)</label>
+            <input id="sens-range" type="range" min="0.4" max="2.2" step="0.1" value="1" />
+          </div>
+          <label class="field" style="flex-direction: row; align-items: center; gap: 10px">
+            <input id="invert-y" type="checkbox" />
+            <span>Invert Y</span>
+          </label>
+          <button class="btn primary" id="btn-settings-save" type="button">Save</button>
+          <button class="btn ghost" id="btn-settings-back" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen" id="room-screen">
+      <div class="panel">
+        <div class="brand">CSP</div>
+        <h1 style="font-size: 28px" id="room-title">Room</h1>
+        <p class="tagline" id="room-body">…</p>
+        <div class="stack">
+          <button class="btn primary team-t" id="btn-room-play-t" type="button">Play as T</button>
+          <button class="btn primary team-ct" id="btn-room-play-ct" type="button">Play as CT</button>
+          <button class="btn ghost" id="btn-room-back" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen" id="end-screen">
+      <div class="panel">
+        <div class="brand">CSP</div>
+        <h1 style="font-size: 28px" id="end-title">Done</h1>
+        <p class="tagline" id="end-body">…</p>
+        <div class="stack">
+          <button class="btn primary" id="btn-end-again" type="button">Play again</button>
+          <button class="btn ghost" id="btn-end-menu" type="button">Main menu</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./js/main.js?v=csp27"></script>
+  </body>
+</html>
