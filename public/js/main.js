@@ -1,4 +1,4 @@
-import { CAPS, QUALITY, loadSettings, saveSettings, makeRoomCode } from "./config.js?v=csp38";
+import { CAPS, QUALITY, loadSettings, saveSettings, makeRoomCode } from "./config.js?v=csp48";
 import {
   WEAPONS,
   loadLoadout,
@@ -6,10 +6,10 @@ import {
   buyWeapon,
   equipWeapon,
   getEquippedWeapon,
-} from "./weapons.js?v=csp38";
-import { createGame } from "./game.js?v=csp38";
-import { isTouchDevice } from "./input.js?v=csp38";
-import { SFX } from "./audio.js?v=csp38";
+} from "./weapons.js?v=csp48";
+import { createGame } from "./game.js?v=csp48";
+import { isTouchDevice } from "./input.js?v=csp48";
+import { SFX } from "./audio.js?v=csp48";
 
 const settingsRef = { current: loadSettings() };
 let loadout = loadLoadout();

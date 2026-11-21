@@ -1,56 +1,49 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
-/** Kenney CC0 blocky humans (not sci-fi Soldier.glb) — proper body scale */
-const KENNEY_BASE =
-  "https://cdn.jsdelivr.net/gh/shorepine/kenney@main/3d/blocky-characters/";
-const KENNEY_T = "character-a.glb";
-const KENNEY_CT = "character-m.glb";
+/**
+ * Shared Quaternius SWAT humanoid (CC0 via Poly Pizza) — meshopt ~475KB
+ * (~200KB gzip). One GLB for all bots; T/CT tint at runtime. No texture atlas.
+ */
+const SOLDIER_URL = "./models/soldier.glb";
 
-let kenneyT = null;
-let kenneyCT = null;
+let soldierGltf = null;
 let soldierPromise = null;
 
 export function preloadSoldiers() {
-  if (kenneyT && kenneyCT) return Promise.resolve(kenneyT);
+  if (soldierGltf) return Promise.resolve(soldierGltf);
   if (soldierPromise) return soldierPromise;
   soldierPromise = new Promise((resolve) => {
-    let left = 2;
     let settled = false;
-    const done = () => {
+    const done = (v) => {
       if (settled) return;
-      if (--left > 0) return;
       settled = true;
-      resolve(kenneyT || kenneyCT);
+      resolve(v);
     };
-    const timer = setTimeout(() => {
-      settled = true;
-      resolve(kenneyT || kenneyCT);
-    }, 9000);
-    const loadOne = (file, assign) => {
-      const loader = new GLTFLoader();
-      loader.setResourcePath(KENNEY_BASE);
-      loader.load(
-        KENNEY_BASE + file,
-        (gltf) => {
-          assign(gltf);
-          clearTimeout(timer);
-          done();
-        },
-        undefined,
-        () => {
-          clearTimeout(timer);
-          done();
-        }
-      );
+    const timer = setTimeout(() => done(null), 10000);
+    const loader = new GLTFLoader();
+    const startLoad = () => {
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.load(
+      SOLDIER_URL,
+      (gltf) => {
+        clearTimeout(timer);
+        soldierGltf = gltf;
+        done(gltf);
+      },
+      undefined,
+      () => {
+        clearTimeout(timer);
+        done(null);
+      }
+    );
     };
-    loadOne(KENNEY_T, (g) => {
-      kenneyT = g;
-    });
-    loadOne(KENNEY_CT, (g) => {
-      kenneyCT = g;
-    });
+    const ready = MeshoptDecoder.ready;
+    if (ready && typeof ready.then === "function") ready.then(startLoad, startLoad);
+    else startLoad();
   });
   return soldierPromise;
 }
@@ -89,30 +82,30 @@ function kitMats(team) {
   const isCT = team === "ct";
   return {
     isCT,
-    // Mid-range CS read: T desert tan / CT navy — solid, not black stickmen
+    // Mid-range CS read: T desert tan / CT navy
     body: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x3d5168 : 0xa88860,
-      roughness: 0.86,
+      color: isCT ? 0x3a4e64 : 0xb8925c,
+      roughness: 0.82,
+      metalness: 0.06,
+      envMapIntensity: 0.38,
+    }),
+    pants: new THREE.MeshStandardMaterial({
+      color: isCT ? 0x2a3848 : 0x6e5840,
+      roughness: 0.88,
       metalness: 0.04,
       envMapIntensity: 0.3,
     }),
-    pants: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x2c3a4a : 0x6a5640,
-      roughness: 0.9,
-      metalness: 0.02,
-      envMapIntensity: 0.24,
-    }),
     vest: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x4a5c70 : 0x8a7048,
-      roughness: 0.72,
-      metalness: 0.12,
-      envMapIntensity: 0.36,
+      color: isCT ? 0x455868 : 0x8a6e48,
+      roughness: 0.7,
+      metalness: 0.14,
+      envMapIntensity: 0.4,
     }),
     helm: new THREE.MeshStandardMaterial({
-      color: isCT ? 0x1a2430 : 0x3a3228,
-      roughness: 0.6,
-      metalness: 0.22,
-      envMapIntensity: 0.38,
+      color: isCT ? 0x1c2834 : 0x3a3228,
+      roughness: 0.58,
+      metalness: 0.24,
+      envMapIntensity: 0.42,
     }),
     mask: new THREE.MeshStandardMaterial({
       color: 0x1c1e1a,
@@ -147,150 +140,115 @@ function kitMats(team) {
   };
 }
 
-function findNamed(root, name) {
+function findBone(root, re) {
   let found = null;
   root.traverse((o) => {
-    if (!found && o.name === name) found = o;
+    if (!found && o.isBone && re.test(o.name)) found = o;
   });
   return found;
 }
 
-/**
- * Paint Kenney human + tactical kit.
- * Kenney layout: root → legs + torso; arms/head are children of torso.
- * Torso mesh local Y∈[0.3,1.2] Z∈[-0.3,0.3]; head node scale 0.1.
- */
-function dressKenneyOperator(root, team) {
-  const k = kitMats(team);
+/** Replace materials entirely — T tan / CT navy (avoid dark SWAT blob) */
+function tintSoldierTeam(root, team) {
+  const isCT = team === "ct";
+  const mk = (hex, rough = 0.78, metal = 0.06) =>
+    new THREE.MeshStandardMaterial({
+      color: hex,
+      roughness: rough,
+      metalness: metal,
+      envMapIntensity: 0.55,
+      emissive: hex,
+      emissiveIntensity: 0.1,
+    });
+  const suit = mk(isCT ? 0x5a7a98 : 0xd4ae70, 0.76, 0.05);
+  const pants = mk(isCT ? 0x3a4c5c : 0x8a6e4c, 0.84, 0.04);
+  const kit = mk(isCT ? 0x2e3c4c : 0x4a3c30, 0.62, 0.18);
+  const skin = mk(0xe0b898, 0.7, 0.02);
+  const pick = (label) => {
+    const n = (label || "").toLowerCase();
+    if (/skin|face|hand/.test(n)) return skin;
+    if (/pant|brown|leg|boot|shoe|feet/.test(n)) return pants;
+    if (/black|dark|hair|grey|gray|helm|vest|gear/.test(n)) return kit;
+    if (/swat|body|suit/.test(n)) return suit;
+    return suit;
+  };
   root.traverse((o) => {
     if (!o.isMesh) return;
-    const n = (o.name || "").toLowerCase();
-    let mat = k.body;
-    if (/leg/.test(n)) mat = k.pants;
-    else if (/head/.test(n)) mat = k.mask;
-    else if (/arm/.test(n)) mat = k.body;
-    else if (/torso/.test(n)) mat = k.body;
-    o.material = mat;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const next = mats.map((m) => pick(`${m?.name || ""} ${o.name || ""}`));
+    o.material = next.length === 1 ? next[0] : next;
+    if (o.geometry?.attributes?.color) o.geometry.deleteAttribute("color");
     o.castShadow = true;
     o.receiveShadow = true;
+    o.frustumCulled = false;
   });
-
-  const torso = findNamed(root, "torso") || root;
-  const head = findNamed(root, "head");
-  const armR = findNamed(root, "arm-right");
-  const armL = findNamed(root, "arm-left");
-  const legL = findNamed(root, "leg-left");
-  const legR = findNamed(root, "leg-right");
-  const attach = findNamed(root, "root") || root;
-
-  // Thicken limb silhouettes (Kenney boxes → operator bulk)
-  if (legL) legL.scale.set(1.55, 1, 1.55);
-  if (legR) legR.scale.set(1.55, 1, 1.55);
-  if (armL) armL.scale.set(1.4, 1.05, 1.4);
-  if (armR) armR.scale.set(1.4, 1.05, 1.4);
-  if (torso) torso.scale.x = 1.12;
-  // Shrink stock head into neck under helm (keep mass, lose cube silhouette)
-  if (head) head.scale.set(0.06, 0.05, 0.06);
-
-  // lookAt faces -Z at camera → chest kit on -Z, pack on +Z
-  const vest = new THREE.Group();
-  vest.add(new THREE.Mesh(rb(0.78, 0.62, 0.22, 0.03), k.vest));
-  const plate = new THREE.Mesh(rb(0.52, 0.48, 0.1, 0.02), k.plate);
-  plate.position.set(0, 0.02, -0.14);
-  vest.add(plate);
-  const band = new THREE.Mesh(rb(0.8, 0.11, 0.2, 0.015), k.accent);
-  band.position.set(0, -0.26, -0.02);
-  vest.add(band);
-  for (let i = -1; i <= 1; i++) {
-    const p = new THREE.Mesh(rb(0.15, 0.17, 0.13, 0.015), k.strap);
-    p.position.set(i * 0.17, -0.28, -0.16);
-    vest.add(p);
-  }
-  vest.position.set(0, 0.75, -0.44);
-  torso.add(vest);
-
-  const pack = new THREE.Mesh(rb(0.58, 0.48, 0.2, 0.025), k.vest);
-  pack.position.set(0, 0.75, 0.48);
-  torso.add(pack);
-
-  // Helmet ABOVE head volume (head local top ≈ y 2.0)
-  const helmG = new THREE.Group();
-  const helm = new THREE.Mesh(rb(0.56, 0.28, 0.58, 0.05), k.helm);
-  const brim = new THREE.Mesh(rb(0.48, 0.07, 0.16, 0.015), k.helm);
-  brim.position.set(0, -0.12, -0.26);
-  const visor = new THREE.Mesh(rb(0.46, 0.11, 0.12, 0.015), k.mask);
-  visor.position.set(0, -0.16, -0.26);
-  const nvg = new THREE.Mesh(rb(0.2, 0.1, 0.16, 0.015), k.gunDark);
-  nvg.position.set(0, 0.1, -0.18);
-  const maskShell = new THREE.Mesh(rb(0.48, 0.4, 0.44, 0.04), k.mask);
-  maskShell.position.set(0, -0.36, -0.06);
-  helmG.add(helm, brim, visor, nvg, maskShell);
-  if (k.isCT) {
-    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.18, 6), k.gunDark);
-    mic.rotation.z = Math.PI / 2;
-    mic.position.set(0.28, -0.2, -0.05);
-    helmG.add(mic);
-  } else {
-    const wrap = new THREE.Mesh(rb(0.58, 0.16, 0.4, 0.04), k.accent);
-    wrap.position.set(0, -0.32, 0.05);
-    helmG.add(wrap);
-  }
-  helmG.position.set(0, 2.28, -0.05);
-  torso.add(helmG);
-
-  // Boots at foot of each leg
-  for (const leg of [legL, legR]) {
-    if (!leg) continue;
-    const boot = new THREE.Mesh(rb(0.28, 0.16, 0.4, 0.03), k.boot);
-    boot.position.set(0, -0.95, 0.08);
-    leg.add(boot);
-  }
-
-  if (armR) {
-    const rifle = new THREE.Group();
-    rifle.position.set(-0.05, -0.55, 0.35);
-    rifle.rotation.set(-0.2, 0.5, 0.15);
-    const recv = new THREE.Mesh(rb(0.07, 0.09, 0.48, 0.008), k.gun);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.018, 0.42, 8), k.gunDark);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.z = 0.4;
-    const stock = new THREE.Mesh(rb(0.055, 0.08, 0.22, 0.01), k.gun);
-    stock.position.z = -0.28;
-    const mag = new THREE.Mesh(rb(0.045, 0.18, 0.055, 0.008), k.gunDark);
-    mag.position.set(0, -0.11, 0.02);
-    rifle.add(recv, barrel, stock, mag);
-    armR.add(rifle);
-  }
-
-  if (armL) {
-    const band2 = new THREE.Mesh(rb(0.16, 0.14, 0.1, 0.015), k.accent);
-    band2.position.set(0.15, -0.25, 0.05);
-    armL.add(band2);
-  }
-
-  // Shoulder pads on torso
-  for (const side of [-1, 1]) {
-    const pad = new THREE.Mesh(rb(0.22, 0.14, 0.28, 0.03), k.vest);
-    pad.position.set(side * 0.48, 1.05, 0.05);
-    torso.add(pad);
-  }
-
-  return { torso, head, armL, armR, helmG, attach };
 }
 
-function wireKenneyAnims(root, gltf) {
+/** Team accents — bone-local units (Root scale≈100 → 0.002 ≈ 0.2m world) */
+function attachTeamAccents(root, team) {
+  const k = kitMats(team);
+  const chest = findBone(root, /torso|chest|spine/i);
+  const head = findBone(root, /^head$/i) || findBone(root, /head/i);
+  const upperArm = findBone(root, /upperarm\.(r|l)|shoulder\.(r|l)/i);
+  const u = 0.0001; // 1cm world: local*RootScale100
+
+  if (chest) {
+    const plate = new THREE.Mesh(rb(22 * u, 28 * u, 8 * u, 0.12 * u), k.plate);
+    plate.position.set(0, 8 * u, 14 * u);
+    chest.add(plate);
+    const band = new THREE.Mesh(rb(24 * u, 4.5 * u, 20 * u, 0.1 * u), k.accent);
+    band.position.set(0, -6 * u, 12 * u);
+    chest.add(band);
+    for (let i = -1; i <= 1; i++) {
+      const pouch = new THREE.Mesh(rb(5.5 * u, 7 * u, 4.5 * u, 0.08 * u), k.strap);
+      pouch.position.set(i * 6 * u, -10 * u, 16 * u);
+      chest.add(pouch);
+    }
+  }
+  if (head) {
+    const helm = new THREE.Mesh(rb(20 * u, 10 * u, 22 * u, 0.2 * u), k.helm);
+    helm.position.set(0, 14 * u, 2 * u);
+    const visor = new THREE.Mesh(rb(16 * u, 4 * u, 6 * u, 0.08 * u), k.mask);
+    visor.position.set(0, 6 * u, 12 * u);
+    const mask = new THREE.Mesh(rb(14 * u, 8 * u, 10 * u, 0.15 * u), k.mask);
+    mask.position.set(0, 2 * u, 10 * u);
+    head.add(helm, visor, mask);
+    if (k.isCT) {
+      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.8 * u, 0.8 * u, 6 * u, 6), k.gunDark);
+      mic.rotation.z = Math.PI / 2;
+      mic.position.set(10 * u, 4 * u, 4 * u);
+      head.add(mic);
+    }
+  }
+  if (upperArm) {
+    const stripe = new THREE.Mesh(rb(7 * u, 6 * u, 4 * u, 0.08 * u), k.accent);
+    stripe.position.set(0, 4 * u, 5 * u);
+    upperArm.add(stripe);
+  }
+}
+
+function wireSoldierAnims(root, gltf) {
   const mixer = new THREE.AnimationMixer(root);
-  const byName = {};
-  for (const clip of gltf.animations || []) byName[clip.name] = clip;
+  const clips = {};
+  for (const clip of gltf.animations || []) {
+    const short = clip.name.split("|").pop() || clip.name;
+    clips[short.toLowerCase()] = clip;
+    clips[clip.name] = clip;
+  }
+  const idleClip =
+    clips.idle_gun || clips["idle_gun"] || clips.idle || clips.idle_neutral || gltf.animations?.[0];
+  const walkClip = clips.walk || clips.run || idleClip;
   let current = null;
-  const play = (name) => {
-    const clip = byName[name] || byName.idle || gltf.animations?.[0];
-    if (!clip || current === name) return;
+  const play = (key) => {
+    const clip = key === "walk" ? walkClip : idleClip;
+    if (!clip) return;
+    const name = clip.name;
+    if (current === name) return;
     const next = mixer.clipAction(clip);
-    next.reset().fadeIn(0.15).play();
+    next.reset().setEffectiveWeight(1).fadeIn(0.18).play();
     if (current) {
-      const prev = mixer.clipAction(byName[current] || clip);
-      prev.fadeOut(0.15);
+      const prev = mixer.existingAction(clips[current] || idleClip);
+      prev?.fadeOut(0.18);
     }
     current = name;
   };
@@ -301,28 +259,28 @@ function wireKenneyAnims(root, gltf) {
   };
 }
 
-/** Kenney human operator (T tan / CT navy). Falls back to chunky procedural. */
+/** Quaternius SWAT operator — shared GLB, T/CT tint. Procedural fallback if missing. */
 export function createBot(team = "t") {
-  const src = team === "ct" ? kenneyCT || kenneyT : kenneyT || kenneyCT;
-  if (src) return createKenneyBot(team, src);
+  if (soldierGltf) return createSoldierBot(team, soldierGltf);
   return createProceduralBot(team);
 }
 
-function createKenneyBot(team, gltf) {
+function createSoldierBot(team, gltf) {
   const g = new THREE.Group();
-  const model = gltf.scene.clone(true);
-  // Kenney blocky humans are ~2 units tall; lookAt in spawn faces -Z at camera
-  model.scale.setScalar(0.95);
+  const model = cloneSkinned(gltf.scene);
+  // Quaternius FBX: Root node scale≈100 already brings cm→m. Leave scene scale 1.
   g.add(model);
 
-  const parts = dressKenneyOperator(model, team);
-  const anim = wireKenneyAnims(model, gltf);
+  tintSoldierTeam(model, team);
+  const anim = wireSoldierAnims(model, gltf);
+  // Pose once so skinned bounds settle
+  anim.mixer.update(0.016);
 
   const hit = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.42, 1.4, 4, 8),
+    new THREE.CapsuleGeometry(0.38, 1.25, 4, 8),
     new THREE.MeshBasicMaterial({ visible: false })
   );
-  hit.position.y = 1.1;
+  hit.position.y = 1.05;
   hit.name = "hitbox";
   g.add(hit);
 
@@ -330,11 +288,6 @@ function createKenneyBot(team, gltf) {
     gltf: true,
     mixer: anim.mixer,
     setAnim: anim.setAnim,
-    legL: findNamed(model, "leg-left"),
-    legR: findNamed(model, "leg-right"),
-    armL: parts.armL,
-    armR: parts.armR,
-    head: parts.head,
     team,
   };
   return g;
@@ -506,87 +459,117 @@ function createProceduralBot(team = "t") {
   return g;
 }
 
-/** Classic CS C4 — olive drab brick, grey duct tape, black keypad, red LED, antenna */
+/** Classic CS C4 — olive packs, grey tape, sharp keypad/LED/antenna (no textures) */
 export function createC4Mesh() {
   const g = new THREE.Group();
   const olive = new THREE.MeshStandardMaterial({
-    color: 0x3a452c,
-    roughness: 0.84,
-    metalness: 0.05,
-    envMapIntensity: 0.22,
-  });
-  // Grey duct tape — not yellow
-  const tape = new THREE.MeshStandardMaterial({
-    color: 0x8a8880,
+    color: 0x4a5a32,
     roughness: 0.72,
-    metalness: 0.08,
-    envMapIntensity: 0.2,
-  });
-  const plastic = new THREE.MeshStandardMaterial({
-    color: 0x141612,
-    roughness: 0.5,
-    metalness: 0.12,
-    envMapIntensity: 0.28,
-  });
-  const metal = new THREE.MeshStandardMaterial({
-    color: 0x5a6068,
-    roughness: 0.38,
-    metalness: 0.55,
+    metalness: 0.06,
     envMapIntensity: 0.4,
   });
-
-  // Dual charge packs (CS silhouette)
-  const body = new THREE.Mesh(rb(0.42, 0.13, 0.28, 0.015), olive);
-  body.position.set(-0.02, 0.07, 0);
-  const body2 = new THREE.Mesh(rb(0.2, 0.12, 0.26, 0.015), olive);
-  body2.position.set(0.18, 0.068, 0);
-  // Grey duct-tape wraps
-  const strapA = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.04, 0.07), tape);
-  strapA.position.set(0.04, 0.125, -0.05);
-  const strapB = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.04, 0.07), tape);
-  strapB.position.set(0.04, 0.125, 0.07);
-  const strapC = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.3), tape);
-  strapC.position.set(-0.14, 0.125, 0);
-  const strapD = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.3), tape);
-  strapD.position.set(0.12, 0.125, 0);
-  // Black keypad / detonator panel
-  const pad = new THREE.Mesh(rb(0.14, 0.045, 0.12, 0.006), plastic);
-  pad.position.set(0.14, 0.15, 0.01);
-  const ledMat = new THREE.MeshStandardMaterial({
-    color: 0xff2200,
-    emissive: 0xff2200,
-    emissiveIntensity: 1.4,
-    roughness: 0.35,
+  const oliveDark = new THREE.MeshStandardMaterial({
+    color: 0x3a4828,
+    roughness: 0.76,
+    metalness: 0.05,
+    envMapIntensity: 0.36,
+  });
+  const tape = new THREE.MeshStandardMaterial({
+    color: 0xa8a69c,
+    roughness: 0.62,
     metalness: 0.1,
+    envMapIntensity: 0.34,
+  });
+  const plastic = new THREE.MeshStandardMaterial({
+    color: 0x101210,
+    roughness: 0.45,
+    metalness: 0.14,
+    envMapIntensity: 0.35,
+  });
+  const metal = new THREE.MeshStandardMaterial({
+    color: 0x6a7078,
+    roughness: 0.32,
+    metalness: 0.62,
+    envMapIntensity: 0.5,
+  });
+
+  // Dual charge packs — classic CS brick silhouette
+  const packL = new THREE.Mesh(rb(0.28, 0.11, 0.26, 0.018), olive);
+  packL.position.set(-0.12, 0.065, 0);
+  const packR = new THREE.Mesh(rb(0.28, 0.11, 0.26, 0.018), oliveDark);
+  packR.position.set(0.14, 0.065, 0);
+  const seam = new THREE.Mesh(rb(0.04, 0.1, 0.24, 0.008), olive);
+  seam.position.set(0.01, 0.065, 0);
+
+  // Grey duct-tape wraps (horizontal + vertical)
+  const strapA = new THREE.Mesh(rb(0.62, 0.035, 0.065, 0.006), tape);
+  strapA.position.set(0.01, 0.118, -0.055);
+  const strapB = new THREE.Mesh(rb(0.62, 0.035, 0.065, 0.006), tape);
+  strapB.position.set(0.01, 0.118, 0.06);
+  const strapC = new THREE.Mesh(rb(0.06, 0.035, 0.28, 0.006), tape);
+  strapC.position.set(-0.16, 0.118, 0);
+  const strapD = new THREE.Mesh(rb(0.06, 0.035, 0.28, 0.006), tape);
+  strapD.position.set(0.18, 0.118, 0);
+  const strapMid = new THREE.Mesh(rb(0.06, 0.035, 0.28, 0.006), tape);
+  strapMid.position.set(0.01, 0.118, 0);
+
+  // Detonator: black housing + LCD lip + keypad grid
+  const housing = new THREE.Mesh(rb(0.16, 0.055, 0.14, 0.008), plastic);
+  housing.position.set(0.12, 0.148, 0.01);
+  const lcd = new THREE.Mesh(
+    rb(0.1, 0.012, 0.04, 0.004),
+    new THREE.MeshStandardMaterial({
+      color: 0x0a1810,
+      emissive: 0x143020,
+      emissiveIntensity: 0.35,
+      roughness: 0.4,
+      metalness: 0.1,
+      toneMapped: false,
+    })
+  );
+  lcd.position.set(0.12, 0.178, -0.03);
+  const ledMat = new THREE.MeshStandardMaterial({
+    color: 0xff1a00,
+    emissive: 0xff2200,
+    emissiveIntensity: 1.6,
+    roughness: 0.3,
+    metalness: 0.08,
     toneMapped: false,
   });
-  const led = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.012, 0.02), ledMat);
-  led.position.set(0.18, 0.175, 0.045);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), ledMat);
+  led.position.set(0.175, 0.178, 0.05);
   const keys = new THREE.Group();
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 3; c++) {
-      const key = new THREE.Mesh(rb(0.022, 0.008, 0.022, 0.003), metal);
-      key.position.set(0.09 + c * 0.028, 0.172, -0.025 + r * 0.028);
+      const key = new THREE.Mesh(rb(0.024, 0.01, 0.024, 0.003), metal);
+      key.position.set(0.07 + c * 0.03, 0.175, -0.005 + r * 0.03);
       keys.add(key);
     }
   }
-  const antBase = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.03, 8), metal);
-  antBase.position.set(-0.14, 0.145, -0.08);
-  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.007, 0.22, 6), metal);
-  ant.position.set(-0.14, 0.26, -0.08);
-  ant.rotation.z = 0.12;
-  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.1, 5), plastic);
-  wire.rotation.z = Math.PI / 2;
-  wire.position.set(-0.02, 0.14, -0.08);
 
-  const light = new THREE.PointLight(0xff3300, 0.35, 2.8, 2);
-  light.position.set(0.18, 0.2, 0.05);
+  // Antenna + base + wire
+  const antBase = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.028, 10), metal);
+  antBase.position.set(-0.18, 0.14, -0.08);
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.007, 0.26, 8), metal);
+  ant.position.set(-0.18, 0.28, -0.08);
+  ant.rotation.z = 0.1;
+  const antTip = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), plastic);
+  antTip.position.set(-0.2, 0.4, -0.08);
+  const wire = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.004, 6, 14, Math.PI), plastic);
+  wire.rotation.y = Math.PI / 2;
+  wire.position.set(-0.04, 0.135, -0.08);
 
-  g.add(body, body2, strapA, strapB, strapC, strapD, pad, led, keys, antBase, ant, wire, light);
+  const light = new THREE.PointLight(0xff3300, 0.45, 3.2, 2);
+  light.position.set(0.175, 0.2, 0.06);
+
+  g.add(
+    packL, packR, seam, strapA, strapB, strapC, strapD, strapMid,
+    housing, lcd, led, keys, antBase, ant, antTip, wire, light
+  );
   g.userData.light = light;
   g.userData.led = led;
   g.userData.ledMat = ledMat;
-  g.rotation.set(0.06, 0.25, -0.03);
+  g.rotation.set(0.05, 0.22, -0.02);
   return g;
 }
 

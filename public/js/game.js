@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { GAME, QUALITY, BOMB } from "./config.js?v=csp38";
-import { WEAPON_BY_ID } from "./weapons.js?v=csp38";
-import { createWorld } from "./world.js?v=csp38";
-import { createInput, isTouchDevice } from "./input.js?v=csp38";
-import { SFX } from "./audio.js?v=csp38";
-import { createComposer } from "./fx.js?v=csp38";
+import { GAME, QUALITY, BOMB } from "./config.js?v=csp48";
+import { WEAPON_BY_ID } from "./weapons.js?v=csp48";
+import { createWorld } from "./world.js?v=csp48";
+import { createInput, isTouchDevice } from "./input.js?v=csp48";
+import { SFX } from "./audio.js?v=csp48";
+import { createComposer } from "./fx.js?v=csp48";
 import {
   createBot,
   createViewmodel,
@@ -14,7 +14,7 @@ import {
   punchViewmodel,
   preloadSoldiers,
   createC4Mesh,
-} from "./entities.js?v=csp38";
+} from "./entities.js?v=csp48";
 
 export function createGame({
   canvas,
@@ -1002,7 +1002,7 @@ export function createGame({
     try {
       const pmrem = new THREE.PMREMGenerator(renderer);
       scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      scene.environmentIntensity = 0.45;
+      scene.environmentIntensity = 0.55;
       pmrem.dispose();
     } catch {
       /* env optional */
