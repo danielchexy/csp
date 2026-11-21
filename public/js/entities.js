@@ -5,8 +5,8 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 /**
- * Shared Quaternius Character Soldier (CC0) — meshopt ~337KB (~160KB gzip).
- * One GLB for all bots; tactical kit + T/CT tint at runtime. No texture atlas.
+ * Shared Quaternius SWAT / Soldier (CC0) — meshopt ~470KB.
+ * Root×100 (cm). Natural bind + Idle_Gun only — no bone thicken/limb pads.
  */
 const SOLDIER_URL = "./models/soldier.glb";
 
@@ -148,7 +148,7 @@ function findBone(root, re) {
   return found;
 }
 
-/** Hide prop weapons; paint suit T tan / CT navy; skin → balaclava */
+/** Hide prop weapons; paint suit T tan / CT navy; head → balaclava. No mesh scale hacks. */
 function dressSoldierBase(root, team) {
   const isCT = team === "ct";
   const mk = (hex, rough = 0.78, metal = 0.06) =>
@@ -156,211 +156,162 @@ function dressSoldierBase(root, team) {
       color: hex,
       roughness: rough,
       metalness: metal,
-      envMapIntensity: 0.5,
+      envMapIntensity: 0.45,
       emissive: hex,
-      emissiveIntensity: 0.06,
+      emissiveIntensity: 0.04,
     });
   const suit = mk(isCT ? 0x3a5168 : 0xa88858, 0.8, 0.05);
   const pants = mk(isCT ? 0x2a3848 : 0x6a5640, 0.86, 0.04);
+  const feet = mk(0x121416, 0.88, 0.06);
   const kit = mk(isCT ? 0x1c2834 : 0x3a3228, 0.62, 0.2);
   const balaclava = mk(0x141612, 0.9, 0.03);
-  const pad = mk(isCT ? 0x2a3848 : 0x5a4a36, 0.7, 0.12);
 
   root.traverse((o) => {
     if (!o.isMesh) return;
     const n = `${o.name || ""} ${o.material?.name || ""}`.toLowerCase();
-    // Drop backpack weapon props — keep Body / Head / ShoulderPad only
     if (/revolver|sniper|pistol|smg|grenade|cannon|shotgun|rocket|ak|shovel|knife/.test(n)) {
       o.visible = false;
       return;
     }
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    const next = mats.map((m) => {
-      const label = `${m?.name || ""} ${o.name || ""}`.toLowerCase();
-      if (/skin|face|hand|head/.test(label) && !/shoulder/.test(label)) return balaclava;
-      if (/pant|brown|leg|boot|feet/.test(label)) return pants;
-      if (/shoulder|pad|black|dark|grey|gray|wood|red/.test(label)) return pad;
-      if (/character_main|swat|body|suit|lightgrey|grey2/.test(label)) return suit;
-      return kit;
-    });
-    o.material = next.length === 1 ? next[0] : next;
+    const meshName = (o.name || "").toLowerCase();
+    // Whole-mesh paint — never map "hand/skin" slots to black (that made spider arms)
+    let mat = suit;
+    if (/soldier_head/.test(meshName)) mat = balaclava;
+    else if (/soldier_feet/.test(meshName)) mat = feet;
+    else if (/soldier_legs/.test(meshName)) mat = pants;
+    else if (/soldier_body/.test(meshName)) mat = suit;
+    else {
+      const label = `${o.material?.name || ""} ${meshName}`.toLowerCase();
+      if (/head|face/.test(label)) mat = balaclava;
+      else if (/foot|boot/.test(label)) mat = feet;
+      else if (/leg|pant/.test(label)) mat = pants;
+      else mat = suit;
+    }
+    const count = Array.isArray(o.material) ? o.material.length : 1;
+    o.material = count > 1 ? Array(count).fill(mat) : mat;
     if (o.geometry?.attributes?.color) o.geometry.deleteAttribute("color");
     o.castShadow = true;
     o.receiveShadow = true;
     o.frustumCulled = false;
-    // Bulk shoulder pads / body mesh — CS operator width
-    if (/shoulderpad/i.test(o.name || "")) o.scale.set(1.35, 1.5, 1.45);
-    if (/^body$/i.test(o.name || "")) o.scale.set(1.22, 1.08, 1.28);
-  });
-}
-
-/** Thicken limb bones (X/Z) — fuller arms/legs without growing height */
-function bulkUpBones(root) {
-  root.traverse((o) => {
-    if (!o.isBone) return;
-    const n = (o.name || "").toLowerCase();
-    if (/upperarm|lowerarm|forearm|shoulder\./.test(n)) {
-      o.scale.x *= 1.55;
-      o.scale.z *= 1.55;
-      o.scale.y *= 1.08;
-    } else if (/upperleg|lowerleg|leg\.|thigh|shin|foot/.test(n)) {
-      o.scale.x *= 1.42;
-      o.scale.z *= 1.42;
-      o.scale.y *= 1.05;
-    } else if (/hip|abdomen|torso|chest|spine/.test(n)) {
-      o.scale.x *= 1.28;
-      o.scale.z *= 1.22;
-    }
   });
 }
 
 /**
- * Full tactical kit in bone-local cm (Root scale≈100 → local 0.001 = 0.1m world).
- * Oversized carrier/helm so mid-range reads operator bulk.
+ * Light helm + vest only — no limb pads/bone scale (those made spider arms).
+ * Bone-local cm (Root×100 → U=0.001 ≈ 0.1m world).
  */
 function attachOperatorKit(root, team) {
   const k = kitMats(team);
   const chest =
     findBone(root, /torso|chest/i) || findBone(root, /spine/i) || findBone(root, /abdomen/i);
   const head = findBone(root, /^head$/i) || findBone(root, /head/i);
-  const shoulderL = findBone(root, /shoulder\.l/i);
-  const shoulderR = findBone(root, /shoulder\.r/i);
   const U = 0.001;
 
   if (head) {
     root.traverse((o) => {
-      if (o.isMesh && /^head$/i.test(o.name || "")) o.visible = false;
+      if (o.isMesh && /soldier_head|^head$/i.test(o.name || "")) o.visible = false;
     });
     const kitG = new THREE.Group();
-    const helmM = new THREE.Mesh(rb(2.8 * U, 1.25 * U, 3.0 * U, 0.22 * U), k.helm);
-    helmM.position.set(0, 1.15 * U, 0.12 * U);
-    const brim = new THREE.Mesh(rb(2.5 * U, 0.4 * U, 0.8 * U, 0.08 * U), k.helm);
-    brim.position.set(0, 0.5 * U, 1.2 * U);
-    const nvg = new THREE.Mesh(rb(1.0 * U, 0.5 * U, 0.9 * U, 0.08 * U), k.gunDark);
-    nvg.position.set(0, 1.55 * U, 1.0 * U);
-    const mask = new THREE.Mesh(rb(2.3 * U, 1.8 * U, 2.0 * U, 0.28 * U), k.mask);
-    mask.position.set(0, 0.15 * U, 0.25 * U);
-    const goggles = new THREE.Mesh(rb(2.0 * U, 0.5 * U, 0.6 * U, 0.08 * U), k.gunDark);
-    goggles.position.set(0, 0.55 * U, 1.15 * U);
-    kitG.add(helmM, brim, nvg, mask, goggles);
-    if (k.isCT) {
-      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * U, 0.09 * U, 0.75 * U, 6), k.gunDark);
-      mic.rotation.z = Math.PI / 2;
-      mic.position.set(1.2 * U, 0.25 * U, 0.45 * U);
-      kitG.add(mic);
-    } else {
-      const wrap = new THREE.Mesh(rb(2.6 * U, 0.7 * U, 1.7 * U, 0.15 * U), k.accent);
-      wrap.position.set(0, -0.55 * U, -0.1 * U);
-      kitG.add(wrap);
-    }
-    kitG.position.set(0, 0.45 * U, 0);
+    const helmM = new THREE.Mesh(rb(2.4 * U, 1.1 * U, 2.6 * U, 0.18 * U), k.helm);
+    helmM.position.set(0, 1.0 * U, 0.1 * U);
+    const mask = new THREE.Mesh(rb(2.0 * U, 1.5 * U, 1.7 * U, 0.22 * U), k.mask);
+    mask.position.set(0, 0.1 * U, 0.2 * U);
+    const goggles = new THREE.Mesh(rb(1.8 * U, 0.4 * U, 0.5 * U, 0.06 * U), k.gunDark);
+    goggles.position.set(0, 0.5 * U, 1.0 * U);
+    kitG.add(helmM, mask, goggles);
+    kitG.position.set(0, 0.35 * U, 0);
     head.add(kitG);
   }
 
   if (chest) {
     const vest = new THREE.Group();
-    // Wide plate carrier — fills torso silhouette
-    const carrier = new THREE.Mesh(rb(4.2 * U, 3.8 * U, 1.8 * U, 0.18 * U), k.vest);
-    carrier.position.set(0, 0.15 * U, 0.95 * U);
-    const plate = new THREE.Mesh(rb(2.8 * U, 2.9 * U, 0.55 * U, 0.1 * U), k.plate);
-    plate.position.set(0, 0.25 * U, 1.7 * U);
-    const band = new THREE.Mesh(rb(4.3 * U, 0.5 * U, 1.6 * U, 0.1 * U), k.accent);
-    band.position.set(0, -1.35 * U, 1.0 * U);
-    vest.add(carrier, plate, band);
-    for (let i = -1; i <= 1; i++) {
-      const pouch = new THREE.Mesh(rb(0.95 * U, 1.1 * U, 0.7 * U, 0.1 * U), k.strap);
-      pouch.position.set(i * 1.05 * U, -1.65 * U, 1.85 * U);
-      vest.add(pouch);
-    }
-    const pack = new THREE.Mesh(rb(3.4 * U, 3.2 * U, 1.3 * U, 0.18 * U), k.vest);
-    pack.position.set(0, 0.15 * U, -1.35 * U);
-    vest.add(pack);
-    const radio = new THREE.Mesh(rb(0.55 * U, 1.0 * U, 0.4 * U, 0.06 * U), k.gunDark);
-    radio.position.set(k.isCT ? 1.7 * U : -1.7 * U, 0.55 * U, -0.15 * U);
-    vest.add(radio);
-    vest.position.set(0, 0.4 * U, 0);
+    const carrier = new THREE.Mesh(rb(2.2 * U, 2.4 * U, 0.9 * U, 0.12 * U), k.vest);
+    carrier.position.set(0, 0.05 * U, 0.55 * U);
+    const plate = new THREE.Mesh(rb(1.5 * U, 1.7 * U, 0.28 * U, 0.06 * U), k.plate);
+    plate.position.set(0, 0.1 * U, 0.95 * U);
+    vest.add(carrier, plate);
+    vest.position.set(0, 0.2 * U, 0);
     chest.add(vest);
-  }
-
-  // Deltoid / shoulder bulk
-  for (const [bone, side] of [
-    [shoulderL, -1],
-    [shoulderR, 1],
-  ]) {
-    if (!bone) continue;
-    const deltoid = new THREE.Mesh(rb(1.4 * U, 1.1 * U, 1.6 * U, 0.2 * U), k.vest);
-    deltoid.position.set(side * 0.9 * U, 0.2 * U, 0.2 * U);
-    bone.add(deltoid);
   }
 }
 
 function wireSoldierAnims(root, gltf) {
   const mixer = new THREE.AnimationMixer(root);
-  const clips = {};
+  const byShort = {};
   for (const clip of gltf.animations || []) {
-    const short = clip.name.split("|").pop() || clip.name;
-    clips[short.toLowerCase()] = clip;
-    clips[clip.name] = clip;
+    const short = (clip.name.split("|").pop() || clip.name).toLowerCase();
+    byShort[short] = clip;
   }
-  const idleClip =
-    clips.idle_shoot ||
-    clips.idle_gun ||
-    clips.idle ||
-    clips.idle_neutral ||
-    gltf.animations?.[0];
-  const walkClip = clips.run_gun || clips.walk || clips.run || idleClip;
+  // Idle_Gun = gun-ready, arms down. Prefer over Idle/bind (T-pose).
+  const idleClip = byShort.idle_gun || byShort.idle_gun_pointing || byShort.idle || gltf.animations?.[0];
+  const walkClip = byShort.walk || byShort.run || idleClip;
   let current = null;
+  let idleAction = null;
   const play = (key) => {
     const clip = key === "walk" ? walkClip : idleClip;
     if (!clip) return;
-    const name = clip.name;
-    if (current === name) return;
+    if (current === clip.name) return;
+    mixer.stopAllAction();
     const next = mixer.clipAction(clip);
-    next.reset().setEffectiveWeight(1).fadeIn(0.18).play();
-    if (current) {
-      const prev = mixer.existingAction(clips[current] || idleClip);
-      prev?.fadeOut(0.18);
-    }
-    current = name;
+    next.reset();
+    next.setEffectiveTimeScale(1);
+    next.setEffectiveWeight(1);
+    next.clampWhenFinished = false;
+    next.enabled = true;
+    next.play();
+    current = clip.name;
+    if (clip === idleClip) idleAction = next;
   };
   play("idle");
+  // Bake Idle_Gun into skeleton immediately (avoid first-frame T-pose)
+  for (let i = 0; i < 4; i++) mixer.update(0.08);
   return {
     mixer,
     setAnim: (name) => play(name === "walk" || name === true ? "walk" : "idle"),
+    holdIdle: () => {
+      play("idle");
+      mixer.update(0.05);
+    },
   };
 }
 
-/** Quaternius Character Soldier + tactical kit. Shared GLB, T/CT tint. */
+/**
+ * Default: procedural operators (readable human bulk mid-range).
+ * Character Soldier GLB is rod-thin even with Idle_Gun + no bone scale — opt-in via #gltf=1.
+ */
 export function createBot(team = "t") {
-  if (soldierGltf) return createSoldierBot(team, soldierGltf);
+  let wantGltf = false;
+  try {
+    wantGltf = new URLSearchParams(String(location.hash || "").replace(/^#/, "")).get("gltf") === "1";
+  } catch {
+    /* ignore */
+  }
+  if (wantGltf && soldierGltf) return createSoldierBot(team, soldierGltf);
   return createProceduralBot(team);
 }
 
 function createSoldierBot(team, gltf) {
   const g = new THREE.Group();
   const model = cloneSkinned(gltf.scene);
-  // Widen X/Z for CS operator bulk; keep height near human.
-  model.scale.set(1.34, 1.08, 1.3);
+  model.scale.setScalar(1);
   g.add(model);
 
   dressSoldierBase(model, team);
-  bulkUpBones(model);
-  // Shrink chibi head vs torso so silhouette reads adult operator
-  const headBone = findBone(model, /^head$/i) || findBone(model, /head/i);
-  if (headBone) {
-    headBone.scale.x *= 0.78;
-    headBone.scale.y *= 0.78;
-    headBone.scale.z *= 0.78;
-  }
   attachOperatorKit(model, team);
   const anim = wireSoldierAnims(model, gltf);
-  anim.mixer.update(0.016);
+
+  model.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = false;
+      o.receiveShadow = false;
+    }
+  });
 
   const hit = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.48, 1.3, 4, 8),
+    new THREE.CapsuleGeometry(0.36, 1.15, 4, 8),
     new THREE.MeshBasicMaterial({ visible: false })
   );
-  hit.position.y = 1.1;
+  hit.position.y = 1.05;
   hit.name = "hitbox";
   g.add(hit);
 
@@ -368,6 +319,7 @@ function createSoldierBot(team, gltf) {
     gltf: true,
     mixer: anim.mixer,
     setAnim: anim.setAnim,
+    holdIdle: anim.holdIdle,
     team,
   };
   return g;
@@ -511,6 +463,9 @@ function createProceduralBot(team = "t") {
   grip.rotation.x = 0.35;
   rifle.add(recv, upperRail, barrel, stock, mag, grip);
   armR.add(upperR, lowerR, handR, rifle);
+  // Gun-ready idle — arms down at sides, not T-pose splay
+  armL.rotation.x = 0.12;
+  armR.rotation.x = -0.35;
 
   g.add(
     legL, legR, thighPadL, thighPadR, kneeL, kneeR, bootL, bootR,
@@ -528,11 +483,11 @@ function createProceduralBot(team = "t") {
   hit.name = "hitbox";
   g.add(hit);
 
-  g.userData = { legL, legR, armL, armR, head, rifle, team };
+  g.userData = { legL, legR, armL, armR, head, rifle, team, gltf: false };
   g.traverse((o) => {
     if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
+      o.castShadow = false;
+      o.receiveShadow = false;
       o.frustumCulled = true;
     }
   });
@@ -656,8 +611,9 @@ export function createC4Mesh() {
 export function updateBotPose(bot, dt, { moving, aiming, shootKick = 0 }) {
   const u = bot.userData;
   if (u.gltf && u.mixer) {
+    // Prefer Idle_Gun whenever not clearly walking — avoids T-pose splay
     u.setAnim?.(moving ? "walk" : "idle");
-    u.mixer.update(dt);
+    u.mixer.update(Math.min(0.05, dt));
     return;
   }
   const { legL, legR, armL, armR, head } = u;

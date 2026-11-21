@@ -1,4 +1,4 @@
-import { CAPS, QUALITY, loadSettings, saveSettings, makeRoomCode } from "./config.js?v=csp52";
+import { CAPS, QUALITY, loadSettings, saveSettings, makeRoomCode } from "./config.js?v=csp62";
 import {
   WEAPONS,
   loadLoadout,
@@ -6,10 +6,10 @@ import {
   buyWeapon,
   equipWeapon,
   getEquippedWeapon,
-} from "./weapons.js?v=csp52";
-import { createGame } from "./game.js?v=csp52";
-import { isTouchDevice } from "./input.js?v=csp52";
-import { SFX } from "./audio.js?v=csp52";
+} from "./weapons.js?v=csp62";
+import { createGame } from "./game.js?v=csp62";
+import { isTouchDevice } from "./input.js?v=csp62";
+import { SFX } from "./audio.js?v=csp62";
 
 const settingsRef = { current: loadSettings() };
 let loadout = loadLoadout();
@@ -43,6 +43,15 @@ const els = {
   shopList: document.getElementById("shop-list"),
   menuLoadout: document.getElementById("menu-loadout"),
   crosshair: document.querySelector(".crosshair"),
+  scoreT: document.getElementById("score-t"),
+  scoreCT: document.getElementById("score-ct"),
+  roundNum: document.getElementById("round-num"),
+  scoreClock: document.getElementById("score-clock"),
+  roundBanner: document.getElementById("round-banner"),
+  roundBannerTitle: document.getElementById("round-banner-title"),
+  roundBannerSub: document.getElementById("round-banner-sub"),
+  playerChip: document.getElementById("player-chip"),
+  displayName: document.getElementById("display-name"),
 };
 
 function showScreen(name) {
@@ -62,6 +71,13 @@ function setHudActive(on) {
   els.pauseBtn.classList.toggle("active", on);
   els.touch.classList.toggle("active", on && isTouchDevice());
   if (!on && els.crosshair) els.crosshair.style.setProperty("--spread", "0px");
+}
+
+function fmtClock(t) {
+  const s = Math.max(0, Math.ceil(Number(t) || 0));
+  const m = (s / 60) | 0;
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
 function onHud(data) {
@@ -84,6 +100,21 @@ function onHud(data) {
   if (data.damageFlash) {
     els.damage.style.opacity = "1";
     setTimeout(() => (els.damage.style.opacity = "0"), 180);
+  }
+  if (data.scoreT != null && els.scoreT) els.scoreT.textContent = String(data.scoreT);
+  if (data.scoreCT != null && els.scoreCT) els.scoreCT.textContent = String(data.scoreCT);
+  if (data.roundNumber != null && els.roundNum) els.roundNum.textContent = `R${data.roundNumber}`;
+  if (data.roundTime != null && els.scoreClock) {
+    els.scoreClock.textContent = fmtClock(data.roundTime);
+    els.scoreClock.dataset.phase = data.phase || "";
+  }
+  if (data.playerName && els.playerChip) els.playerChip.textContent = data.playerName;
+  if (data.roundBanner === null && els.roundBanner) {
+    els.roundBanner.hidden = true;
+  } else if (data.roundBanner && els.roundBanner) {
+    els.roundBanner.hidden = false;
+    if (els.roundBannerTitle) els.roundBannerTitle.textContent = data.roundBanner.title || "";
+    if (els.roundBannerSub) els.roundBannerSub.textContent = data.roundBanner.sub || "";
   }
 }
 
@@ -178,11 +209,15 @@ async function startMatch(team) {
   selectedTeam = team;
   loadout = loadLoadout();
   const gun = getEquippedWeapon(loadout);
+  const name = (els.displayName?.value || settingsRef.current.displayName || "Player").trim().slice(0, 16) || "Player";
+  settingsRef.current.displayName = name;
+  saveSettings(settingsRef.current);
   SFX.click();
   SFX.unlock();
   pendingRoom = null;
   showScreen(null);
   setHudActive(true);
+  if (els.roundBanner) els.roundBanner.hidden = true;
   game?.destroy();
   try {
     game = createGame({
@@ -195,22 +230,30 @@ async function startMatch(team) {
       onToast: toast,
       onEnd: (result) => {
         setHudActive(false);
+        document.getElementById("nametag-layer") && (document.getElementById("nametag-layer").innerHTML = "");
         if (result.win) {
           loadout = loadLoadout();
-          loadout.coins += 500;
+          loadout.coins += result.match ? 1500 : 500;
           saveLoadout(loadout);
           refreshMenuLoadout();
         }
-        els.endTitle.textContent = result.win ? "Victory" : "Defeat";
+        const sc = result.score ? ` · T ${result.score.t}–${result.score.ct} CT` : "";
+        els.endTitle.textContent = result.match
+          ? result.win
+            ? "Match victory"
+            : "Match defeat"
+          : result.win
+            ? "Victory"
+            : "Defeat";
         els.endBody.textContent =
-          (result.reason || (result.win ? "Your team won the round." : "Your team lost the round.")) +
-          (result.win ? " · +500 ¢" : "");
+          (result.reason || (result.win ? "Your team won." : "Your team lost.")) +
+          sc +
+          (result.win ? (result.match ? " · +1500 ¢" : " · +500 ¢") : "");
         showScreen("end-screen");
       },
     });
-    // start() is async (CDN soldier preload) — await so __csp is set before ready
     await game.start();
-    window.__csp = game.debug || window.__csp;
+    window.__csp = game.debug || window.__csp || document.documentElement.__csp;
     window.__cspGame = game;
     document.documentElement.dataset.cspReady = window.__csp ? "1" : "0";
     window.__cspErr = window.__csp ? null : "start finished but __csp missing";
@@ -334,6 +377,7 @@ els.sens.addEventListener("input", () => {
   els.sensVal.textContent = Number(els.sens.value).toFixed(1);
 });
 
+if (els.displayName) els.displayName.value = settingsRef.current.displayName || "Player";
 refreshMenuLoadout();
 showScreen("menu-screen");
 toast(`CSP · ${fmtCoins(loadout.coins)}`);

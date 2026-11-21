@@ -40,8 +40,8 @@ export const QUALITY = {
 
 export const GAME = {
   mapSeed: 7741,
-  playerSpeed: 6.8,
-  sprintMul: 1.4,
+  playerSpeed: 5.6,
+  sprintMul: 1.35,
   mouseSens: 0.0022,
   touchSens: 0.0034,
   maxHp: 100,
@@ -51,8 +51,8 @@ export const GAME = {
   reloadTime: 2.35,
   gravity: 22,
   jumpSpeed: 7.5,
-  /** Walk the map freely — bots idle, no round end / damage */
-  explore: true,
+  /** false = real rounds + combat AI */
+  explore: false,
 };
 
 /** CS-style bomb round timings (seconds) */
@@ -60,18 +60,33 @@ export const BOMB = {
   plantTime: 3.2,
   defuseTime: 7,
   fuseTime: 40,
-  roundTime: 9999,
-  allyBots: 2,
-  enemyBots: 3,
+  roundTime: 105,
+  buyTime: 12,
+  /** First to N round wins (5 for quicker matches; classic 13) */
+  winScore: 5,
+  roundRestartDelay: 4,
+  /** 10v10: player + 9 allies vs 10 enemies */
+  allyBots: 9,
+  enemyBots: 10,
+};
+
+export const BOT_NAMES = {
+  t: [
+    "Phoenix", "Rebel", "Maverick", "Wraith", "Nomad",
+    "Viper", "Ghost", "Razor", "Spectre", "Outlaw",
+  ],
+  ct: [
+    "Seal", "Guardian", "Sentinel", "Bastion", "Aegis",
+    "Paladin", "Ranger", "Hunter", "Marshal", "Defender",
+  ],
 };
 
 export function loadSettings() {
   try {
     const raw = localStorage.getItem("csp-settings") || localStorage.getItem("csp-relay-settings");
-    const defaults = { quality: "high", sens: 1, invertY: false, lookV: 6 };
+    const defaults = { quality: "high", sens: 1, invertY: false, lookV: 6, displayName: "Player" };
     if (!raw) return { ...defaults };
     const parsed = JSON.parse(raw);
-    // Always reset Invert Y on this fix — it was flipping a already-correct axis
     if (parsed.lookV !== 6) {
       parsed.invertY = false;
       parsed.lookV = 6;
@@ -79,7 +94,7 @@ export function loadSettings() {
     }
     return { ...defaults, ...parsed, invertY: false };
   } catch {
-    return { quality: "med", sens: 1, invertY: false, lookV: 6 };
+    return { quality: "med", sens: 1, invertY: false, lookV: 6, displayName: "Player" };
   }
 }
 

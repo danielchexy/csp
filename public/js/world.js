@@ -1015,19 +1015,26 @@ export function createWorld(scene, quality) {
     new THREE.Vector3(2, 0, 38),
   ];
   const botSpawnsT = [
-    new THREE.Vector3(-14, 0, -26),
-    new THREE.Vector3(14, 0, -26),
-    new THREE.Vector3(0, 0, -16),
-    new THREE.Vector3(-18, 0, -10),
+    new THREE.Vector3(-16, 0, -28),
+    new THREE.Vector3(16, 0, -28),
+    new THREE.Vector3(-6, 0, -34),
+    new THREE.Vector3(6, 0, -34),
+    new THREE.Vector3(0, 0, -18),
+    new THREE.Vector3(-20, 0, -12),
+    new THREE.Vector3(20, 0, -12),
+    new THREE.Vector3(-10, 0, -24),
+    new THREE.Vector3(10, 0, -24),
   ];
   const botSpawnsCT = [
-    // Visible through T spawn right door — gear silhouette readable early
-    new THREE.Vector3(5.2, 0, -35.5),
-    new THREE.Vector3(-14, 0, 30),
-    new THREE.Vector3(14, 0, 30),
-    new THREE.Vector3(-22, 0, 14),
-    new THREE.Vector3(22, 0, 14),
-    new THREE.Vector3(0, 0, 18),
+    new THREE.Vector3(-16, 0, 34),
+    new THREE.Vector3(16, 0, 34),
+    new THREE.Vector3(-6, 0, 40),
+    new THREE.Vector3(6, 0, 40),
+    new THREE.Vector3(-22, 0, 16),
+    new THREE.Vector3(22, 0, 16),
+    new THREE.Vector3(0, 0, 22),
+    new THREE.Vector3(-12, 0, 28),
+    new THREE.Vector3(12, 0, 28),
   ];
 
   // Room hubs + sites + spawns for bot nav graph

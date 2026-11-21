@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { GAME, QUALITY, BOMB } from "./config.js?v=csp52";
-import { WEAPON_BY_ID } from "./weapons.js?v=csp52";
-import { createWorld } from "./world.js?v=csp52";
-import { createInput, isTouchDevice } from "./input.js?v=csp52";
-import { SFX } from "./audio.js?v=csp52";
-import { createComposer } from "./fx.js?v=csp52";
+import { GAME, QUALITY, BOMB, BOT_NAMES } from "./config.js?v=csp62";
+import { WEAPON_BY_ID } from "./weapons.js?v=csp62";
+import { createWorld } from "./world.js?v=csp62";
+import { createInput, isTouchDevice } from "./input.js?v=csp62";
+import { SFX } from "./audio.js?v=csp62";
+import { createComposer } from "./fx.js?v=csp62";
 import {
   createBot,
   createViewmodel,
@@ -14,7 +14,7 @@ import {
   punchViewmodel,
   preloadSoldiers,
   createC4Mesh,
-} from "./entities.js?v=csp52";
+} from "./entities.js?v=csp62";
 
 export function createGame({
   canvas,
@@ -65,9 +65,15 @@ export function createGame({
     wallPull: 0,
   };
 
+  const score = { t: 0, ct: 0 };
   const round = {
     timeLeft: BOMB.roundTime,
+    buyLeft: BOMB.buyTime,
+    phase: "buy", // buy | live | end
     over: false,
+    number: 1,
+    endTimer: 0,
+    pendingMatchEnd: null,
   };
 
   const bomb = {
@@ -85,9 +91,13 @@ export function createGame({
   const bullets = [];
   const tmp = new THREE.Vector3();
   const tmp2 = new THREE.Vector3();
+  const tmp3 = new THREE.Vector3();
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
+  const nametagLayer = document.getElementById("nametag-layer");
+  const playerName = settingsRef?.current?.displayName || "Player";
+  let nameIdx = { t: 0, ct: 0 };
 
   function applyQuality(q) {
     renderer.setPixelRatio(q.pixelRatio);
@@ -100,36 +110,117 @@ export function createGame({
     if (camera) camera.far = q.drawDistance;
   }
 
+  function nextBotName(side) {
+    const pool = BOT_NAMES[side] || BOT_NAMES.t;
+    const n = pool[nameIdx[side] % pool.length];
+    nameIdx[side]++;
+    return n;
+  }
+
+  function clearNametags() {
+    if (!nametagLayer) return;
+    nametagLayer.innerHTML = "";
+  }
+
   function spawnSide(list, count, side, spots) {
-    for (const e of list) scene.remove(e.mesh);
+    for (const e of list) {
+      if (e.tagEl) e.tagEl.remove();
+      scene.remove(e.mesh);
+    }
     list.length = 0;
     for (let i = 0; i < count; i++) {
       const mesh = createBot(side);
+      // Unique slot per bot across expanded spots — wide fan, no doorway stack
       const spot = spots[i % spots.length];
-      mesh.position.set(spot.x + (Math.random() - 0.5) * 2, 0, spot.z + (Math.random() - 0.5) * 2);
+      const slot = (i / spots.length) | 0;
+      const ring = 2.2 + slot * 1.6 + (i % 3) * 0.55;
+      const ang = (i * 2.399) + (side === "t" ? 0.35 : 1.4);
+      mesh.position.set(spot.x + Math.cos(ang) * ring, 0, spot.z + Math.sin(ang) * ring);
+      world.resolveCollision(mesh.position, 0.4);
+      mesh.rotation.order = "YXZ";
+      mesh.rotation.y = side === "t" ? 0 : Math.PI;
       scene.add(mesh);
+      const displayName = nextBotName(side);
+      let tagEl = null;
+      if (nametagLayer) {
+        tagEl = document.createElement("div");
+        tagEl.className = "nametag";
+        tagEl.dataset.team = side;
+        tagEl.innerHTML = `<span class="nametag-name">${displayName}</span>`;
+        tagEl.style.display = "none";
+        nametagLayer.appendChild(tagEl);
+      }
+      const home = mesh.position.clone();
       list.push({
         mesh,
         team: side,
+        displayName,
+        tagEl,
+        home,
+        goalOffset: new THREE.Vector3((Math.random() - 0.5) * 6, 0, (Math.random() - 0.5) * 6),
         hp: 100,
-        speed: 3.3 + Math.random() * 0.5,
+        speed: 2.6 + Math.random() * 0.25,
         attackCd: 1 + Math.random(),
         alive: true,
         strafe: Math.random() > 0.5 ? 1 : -1,
-        strafeT: 0,
-        accuracy: 0.52 + Math.random() * 0.2,
+        strafeT: 0.5 + Math.random(),
+        accuracy: 0.48 + Math.random() * 0.22,
         shootKick: 0,
         plantCd: 4 + Math.random() * 6,
         hasBomb: false,
-        targetSite: Math.random() > 0.5 ? "A" : "B",
+        targetSite: i % 2 === 0 ? "A" : "B",
         path: null,
         pathIdx: 0,
         pathGoal: null,
         stuckT: 0,
         lastPos: mesh.position.clone(),
         repathT: 0,
+        yaw: mesh.rotation.y,
+        lod: 0,
       });
     }
+  }
+
+  /** Soft push so bots don't occupy the same point (stacking / jitter). */
+  function separateAgents(lists) {
+    const all = [];
+    for (const list of lists) {
+      for (const e of list) if (e.alive) all.push(e);
+    }
+    const minDist = 1.45;
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i].mesh.position;
+        const b = all[j].mesh.position;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= minDist || d < 1e-4) continue;
+        const push = (minDist - d) * 0.55;
+        const nx = dx / d;
+        const nz = dz / d;
+        a.x -= nx * push;
+        a.z -= nz * push;
+        b.x += nx * push;
+        b.z += nz * push;
+      }
+    }
+  }
+
+  function smoothBotYaw(e, faceX, faceZ, dt) {
+    const dx = faceX - e.mesh.position.x;
+    const dz = faceZ - e.mesh.position.z;
+    if (dx * dx + dz * dz < 1e-6) return;
+    // Match Object3D.lookAt Y-facing (−Z toward target)
+    const desired = Math.atan2(-dx, -dz);
+    let dy = desired - (e.yaw || 0);
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    e.yaw = (e.yaw || 0) + THREE.MathUtils.clamp(dy, -2.8 * dt, 2.8 * dt);
+    e.mesh.rotation.order = "YXZ";
+    e.mesh.rotation.y = e.yaw;
+    e.mesh.rotation.x = 0;
+    e.mesh.rotation.z = 0;
   }
 
   function spawnBots() {
@@ -145,39 +236,12 @@ export function createGame({
   }
 
   function resetMatch() {
-    player.hp = GAME.maxHp;
-    player.yaw = team === "t" ? Math.PI : 0;
-    player.pitch = -0.05;
-    player.velY = 0;
-    player.mag = weapon.mag;
-    player.reserve = weapon.reserve;
+    score.t = 0;
+    score.ct = 0;
+    round.number = 1;
     player.weaponName = weapon.name;
-    player.cooldown = 0;
-    player.reloading = 0;
-    player.reloadDur = 0;
-    player.won = false;
-    player.dead = false;
-    player.spray = 0;
-    player.punchPitch = 0;
-    player.punchYaw = 0;
-    armed = false;
-    round.timeLeft = BOMB.roundTime;
-    round.over = false;
-    bomb.state = team === "t" ? "carried" : "idle";
-    bomb.site = null;
-    bomb.plantProgress = 0;
-    bomb.defuseProgress = 0;
-    bomb.fuseLeft = BOMB.fuseTime;
-    bomb.holdAction = null;
-    if (bombMesh) bombMesh.visible = false;
-
-    const spawnPos = team === "t" ? world.tSpawns[0] : world.ctSpawns[0];
-    player.pos.set(spawnPos.x, 1.7, spawnPos.z);
-    camera.position.copy(player.pos);
-    camera.rotation.order = "YXZ";
-    camera.rotation.y = player.yaw;
-    camera.rotation.x = player.pitch;
-    // Optional capture poses: #x=&z=&yaw=&pitch=&plant=A&advance=90
+    beginRound();
+    // Optional capture poses: #x=&z=&yaw=&pitch=&plant=A&advance=90&bots=1
     try {
       const h = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
       if (h.has("x") && h.has("z")) {
@@ -193,37 +257,30 @@ export function createGame({
         if (site) plantBomb(h.get("plant"), site.center.clone());
       }
       const adv = Number(h.get("advance") || 0);
-      if (adv > 0) {
-        // Applied after __csp pump exists — stash for start()
-        player._captureAdvance = adv;
-      }
-      // Capture: place showcase bots in front of camera (#bots=1)
+      if (adv > 0) player._captureAdvance = adv;
       if (h.get("bots") === "1") {
-        player._captureBots = true;
+        const fx = -Math.sin(player.yaw);
+        const fz = -Math.cos(player.yaw);
+        const rx = Math.cos(player.yaw);
+        const rz = -Math.sin(player.yaw);
+        const pin = (e, ox, oz) => {
+          if (!e) return;
+          e.mesh.position.set(player.pos.x + fx * 4.2 + rx * ox, 0, player.pos.z + fz * 4.2 + rz * oz);
+          e.yaw = Math.atan2(-(player.pos.x - e.mesh.position.x), -(player.pos.z - e.mesh.position.z));
+          e.mesh.rotation.y = e.yaw;
+          e.speed = 0;
+          e.path = null;
+          e.home = e.mesh.position.clone();
+          e.patrol = e.mesh.position.clone();
+          e.patrolT = 9999;
+          e.stuckT = 0;
+          e.mesh.userData.holdIdle?.();
+        };
+        pin(enemies[0], -1.15, 0);
+        pin(allies[0] || enemies[1], 1.15, 0);
       }
     } catch {
       /* ignore bad hash */
-    }
-    spawnBots();
-    if (player._captureBots) {
-      const fx = -Math.sin(player.yaw);
-      const fz = -Math.cos(player.yaw);
-      const rx = Math.cos(player.yaw);
-      const rz = -Math.sin(player.yaw);
-      const pin = (e, ox, oz) => {
-        if (!e) return;
-        e.mesh.position.set(player.pos.x + fx * 3.1 + rx * ox, 0, player.pos.z + fz * 3.1 + rz * oz);
-        e.mesh.lookAt(player.pos.x, 0, player.pos.z);
-        e.speed = 0;
-        e.path = null;
-        e.patrol = e.mesh.position.clone();
-        e.patrolT = 9999;
-        e.stuckT = 0;
-      };
-      // CT left, T right — mid-range team read
-      pin(enemies[0], -0.85, 0);
-      pin(allies[0] || enemies[1], 0.85, 0);
-      delete player._captureBots;
     }
     pushHud();
   }
@@ -236,8 +293,9 @@ export function createGame({
   }
 
   function objectiveText() {
-    if (round.over) return player.won ? "Round won" : "Round lost";
-    if (player.dead) return "You are dead";
+    if (round.phase === "end") return player.won ? "Round won" : "Round lost";
+    if (round.phase === "buy") return `BUY TIME · ${fmt(round.buyLeft)} · round ${round.number}`;
+    if (player.dead) return "You are dead — spectating";
     if (player.reloading > 0) return "Reloading…";
     if (bomb.state === "planted") {
       if (team === "ct") return `Bomb planted ${bomb.site} · DEFUSE (hold E) · ${fmt(bomb.fuseLeft)}`;
@@ -266,13 +324,18 @@ export function createGame({
       weapon: weapon.name,
       spray: player.spray,
       bombState: bomb.state,
-      roundTime: bomb.state === "planted" ? bomb.fuseLeft : round.timeLeft,
+      roundTime: bomb.state === "planted" ? bomb.fuseLeft : round.phase === "buy" ? round.buyLeft : round.timeLeft,
+      scoreT: score.t,
+      scoreCT: score.ct,
+      roundNumber: round.number,
+      phase: round.phase,
+      buyLeft: round.buyLeft,
+      playerName,
       ...extra,
     });
   }
 
   function endRound(win, reason) {
-    // Explore softens combat — plant/defuse still run; rounds don't terminate
     if (GAME.explore) {
       onToast?.(reason || (win ? "Round would end (explore)" : "Round would end (explore)"));
       pushHud();
@@ -280,13 +343,82 @@ export function createGame({
     }
     if (round.over) return;
     round.over = true;
+    round.phase = "end";
+    round.endTimer = BOMB.roundRestartDelay;
     player.won = win;
+    const winner = win ? team : enemyTeam;
+    if (winner === "t") score.t += 1;
+    else score.ct += 1;
     SFX[win ? "win" : "hurt"]();
-    pushHud();
-    onEnd?.({ win, reason, team });
-    try {
-      document.exitPointerLock?.();
-    } catch {}
+    onToast?.(reason || (win ? "Round won" : "Round lost"));
+    pushHud({
+      roundBanner: {
+        title: win ? "ROUND WON" : "ROUND LOST",
+        sub: `${reason || ""} · T ${score.t} – ${score.ct} CT`,
+      },
+    });
+
+    const matchOver = score.t >= BOMB.winScore || score.ct >= BOMB.winScore;
+    if (matchOver) {
+      round.pendingMatchEnd = {
+        win: score[team] > score[enemyTeam],
+        reason: score.t >= BOMB.winScore ? "Terrorists win the match" : "Counter-Terrorists win the match",
+        score: { ...score },
+        match: true,
+      };
+    } else {
+      round.pendingMatchEnd = null;
+    }
+  }
+
+  function beginRound() {
+    player.hp = GAME.maxHp;
+    player.yaw = team === "t" ? Math.PI : 0;
+    player.pitch = -0.05;
+    player.velY = 0;
+    player.mag = weapon.mag;
+    player.reserve = weapon.reserve;
+    player.cooldown = 0;
+    player.reloading = 0;
+    player.reloadDur = 0;
+    player.won = false;
+    player.dead = false;
+    player.spray = 0;
+    player.punchPitch = 0;
+    player.punchYaw = 0;
+    armed = false;
+    fireHeld = false;
+    round.timeLeft = BOMB.roundTime;
+    round.buyLeft = BOMB.buyTime;
+    round.phase = "buy";
+    round.over = false;
+    round.endTimer = 0;
+    round.pendingMatchEnd = null;
+    bomb.state = team === "t" ? "carried" : "idle";
+    bomb.site = null;
+    bomb.plantProgress = 0;
+    bomb.defuseProgress = 0;
+    bomb.fuseLeft = BOMB.fuseTime;
+    bomb.holdAction = null;
+    if (bombMesh) bombMesh.visible = false;
+
+    const spawnPos = team === "t" ? world.tSpawns[0] : world.ctSpawns[0];
+    player.pos.set(spawnPos.x, 1.7, spawnPos.z);
+    camera.position.copy(player.pos);
+    camera.rotation.order = "YXZ";
+    camera.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
+
+    nameIdx = { t: 0, ct: 0 };
+    clearNametags();
+    spawnBots();
+    pushHud({ roundBanner: null });
+    onToast?.(`Round ${round.number} · buy time`);
+  }
+
+  function startNextRound() {
+    round.number += 1;
+    beginRound();
   }
 
   function aliveCount(list) {
@@ -294,7 +426,7 @@ export function createGame({
   }
 
   function checkElim() {
-    if (GAME.explore || round.over || player.dead) return;
+    if (GAME.explore || round.over || round.phase !== "live" || player.dead) return;
     if (aliveCount(enemies) === 0) {
       if (bomb.state === "planted") {
         if (team === "ct") return;
@@ -303,6 +435,62 @@ export function createGame({
         endRound(true, "Enemies eliminated");
       }
     }
+  }
+
+  function updateNametags() {
+    if (!nametagLayer || !camera) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const camPos = camera.position;
+
+    const allyRank = allies
+      .filter((e) => e.alive)
+      .map((e) => ({ e, d: camPos.distanceTo(e.mesh.position) }))
+      .sort((a, b) => a.d - b.d);
+    const allyAllow = new Set(allyRank.filter((x) => x.d < 20).slice(0, 4).map((x) => x.e));
+
+    const losClear = (e) => {
+      const dir = tmp2.set(e.mesh.position.x - camPos.x, 1.55 - camPos.y, e.mesh.position.z - camPos.z);
+      const len = dir.length();
+      if (len < 0.2) return true;
+      dir.multiplyScalar(1 / len);
+      return world.raycast(camPos, dir, len - 0.35) >= len - 0.45;
+    };
+
+    const paint = (e, isEnemy) => {
+      const el = e.tagEl;
+      if (!el) return;
+      if (!e.alive) {
+        el.style.display = "none";
+        return;
+      }
+      tmp3.set(e.mesh.position.x, 1.85, e.mesh.position.z);
+      const dist = camPos.distanceTo(tmp3);
+      tmp3.project(camera);
+      const behind = tmp3.z > 1 || tmp3.z < 0;
+      const onScreen = !behind && Math.abs(tmp3.x) < 1.05 && Math.abs(tmp3.y) < 1.15;
+      let show = false;
+      if (isEnemy) {
+        show = onScreen && dist < 28 && losClear(e);
+      } else {
+        show = onScreen && allyAllow.has(e) && dist < 20;
+      }
+      if (!show) {
+        el.style.display = "none";
+        return;
+      }
+      const x = (tmp3.x * 0.5 + 0.5) * w;
+      const y = (-tmp3.y * 0.5 + 0.5) * h;
+      el.style.display = "block";
+      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+      el.style.opacity = String(THREE.MathUtils.clamp(1.05 - dist / 24, 0.4, 1));
+      el.dataset.team = e.team;
+      if (!isEnemy) el.dataset.ally = "1";
+      else delete el.dataset.ally;
+    };
+
+    for (const e of allies) paint(e, false);
+    for (const e of enemies) paint(e, true);
   }
 
   function plantBomb(siteName, pos) {
@@ -652,12 +840,25 @@ export function createGame({
     e.repathT = 2.5 + Math.random();
   }
 
+  function offsetGoal(base, e) {
+    const o = e.goalOffset || tmp.set(0, 0, 0);
+    return tmp.set(base.x + o.x, 0, base.z + o.z);
+  }
+
   function updateBotList(list, isEnemy, dt) {
     for (const e of list) {
       if (!e.alive) continue;
+      // Buy / freeze: hold home spawn — Idle_Gun, no mid-map rush
+      if (round.phase === "buy" || round.phase === "end") {
+        e.path = null;
+        e.mesh.position.y = 0;
+        smoothBotYaw(e, e.mesh.position.x - Math.sin(e.yaw), e.mesh.position.z - Math.cos(e.yaw), dt);
+        updateBotPose(e.mesh, dt, { moving: false, aiming: false, shootKick: 0 });
+        continue;
+      }
+
       let goal = player.pos;
       if (GAME.explore) {
-        // Patrol along nav waypoints — don't chase; still walk door gaps
         if (!e.patrol) {
           const graph = world.navGraph || [];
           const node = graph[(Math.random() * graph.length) | 0] || { x: e.mesh.position.x, z: e.mesh.position.z };
@@ -674,10 +875,9 @@ export function createGame({
         goal = e.patrol;
       } else if (!isEnemy) {
         if (team === "t" && bomb.state !== "planted") {
-          const site = world.sites[e.targetSite];
-          goal = site.center;
+          goal = offsetGoal(world.sites[e.targetSite].center, e);
         } else if (bomb.state === "planted") {
-          goal = bomb.pos;
+          goal = offsetGoal(bomb.pos, e);
         } else {
           let nearest = null;
           for (const en of enemies) {
@@ -685,14 +885,18 @@ export function createGame({
             const d = en.mesh.position.distanceTo(e.mesh.position);
             if (!nearest || d < nearest.d) nearest = { d, p: en.mesh.position };
           }
-          if (nearest) goal = nearest.p;
+          if (nearest) goal = offsetGoal(nearest.p, e);
+          else goal = e.home || e.mesh.position;
         }
+      } else {
+        // Enemies: approach player with personal offset — not a single funnel point
+        goal = offsetGoal(player.pos, e);
       }
 
       // T enemy with bomb: go plant (works in explore for plant testing)
       if (isEnemy && e.hasBomb && (bomb.state === "carried_bot" || bomb.state === "idle")) {
         const site = world.sites[e.targetSite];
-        goal = site.center;
+        goal = offsetGoal(site.center, e);
         if (world.inSite(e.mesh.position, site)) {
           e.plantCd -= dt;
           if (e.plantCd <= 0) {
@@ -744,72 +948,85 @@ export function createGame({
       const toGoal = tmp.copy(waypoint).sub(e.mesh.position);
       toGoal.y = 0;
       const dist = toGoal.length();
-      const dir = dist > 0.001 ? toGoal.multiplyScalar(1 / dist) : new THREE.Vector3(0, 0, 1);
+      const dir = dist > 0.001 ? toGoal.multiplyScalar(1 / dist) : tmp2.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
       const distFinal = Math.hypot(goal.x - e.mesh.position.x, goal.z - e.mesh.position.z);
 
       e.strafeT -= dt;
       if (e.strafeT <= 0) {
         e.strafe *= -1;
-        e.strafeT = 0.8 + Math.random() * 1.2;
+        e.strafeT = 1.2 + Math.random() * 1.6;
       }
       e.shootKick = Math.max(0, e.shootKick - dt * 4);
 
-      e.mesh.lookAt(waypoint.x, e.mesh.position.y, waypoint.z);
-
       let moving = false;
-      const before = e.lastPos;
+      const beforeX = e.mesh.position.x;
+      const beforeZ = e.mesh.position.z;
       const spd = GAME.explore ? e.speed * 0.55 : e.speed;
-      const prefer = GAME.explore ? 1.4 : isEnemy ? 10 + Math.random() * 4 : 6;
-      // Light strafe only when not pathing through doors (avoids wall scrapes)
-      const strafeAmt = e.path && e.pathIdx < (e.path.length - 1) ? 0.08 : 0.32;
+      const prefer = GAME.explore ? 1.6 : isEnemy ? 12 : 5.5;
+      // Strafe only in combat hold — not while door-pathing (was skating/spinning)
+      const inCombatHold = !GAME.explore && isEnemy && distFinal <= prefer && distFinal > 4;
+      const strafeAmt = e.path && e.pathIdx < (e.path.length - 1) ? 0.05 : inCombatHold ? 0.28 : 0;
+
       if (distFinal > prefer) {
-        e.mesh.position.addScaledVector(dir, spd * dt);
-        e.mesh.position.x += -dir.z * e.strafe * spd * strafeAmt * dt;
-        e.mesh.position.z += dir.x * e.strafe * spd * strafeAmt * dt;
+        e.mesh.position.x += dir.x * spd * dt;
+        e.mesh.position.z += dir.z * spd * dt;
+        if (strafeAmt > 0) {
+          e.mesh.position.x += -dir.z * e.strafe * spd * strafeAmt * dt;
+          e.mesh.position.z += dir.x * e.strafe * spd * strafeAmt * dt;
+        }
         moving = true;
-      } else if (!GAME.explore && isEnemy && distFinal < 6) {
-        e.mesh.position.addScaledVector(dir, -spd * 0.4 * dt);
-        moving = true;
-      } else if (!GAME.explore) {
-        e.mesh.position.x += -dir.z * e.strafe * spd * 0.45 * dt;
-        e.mesh.position.z += dir.x * e.strafe * spd * 0.45 * dt;
+      } else if (inCombatHold) {
+        e.mesh.position.x += -dir.z * e.strafe * spd * 0.35 * dt;
+        e.mesh.position.z += dir.x * e.strafe * spd * 0.35 * dt;
+        if (distFinal < 5) {
+          e.mesh.position.x -= dir.x * spd * 0.25 * dt;
+          e.mesh.position.z -= dir.z * spd * 0.25 * dt;
+        }
         moving = true;
       }
-      world.resolveCollision(e.mesh.position, 0.42);
+
+      world.resolveCollision(e.mesh.position, 0.38);
       e.mesh.position.y = 0;
 
-      // Stuck recovery — repath or warp to next open nav node
-      const moved = Math.hypot(e.mesh.position.x - before.x, e.mesh.position.z - before.z);
-      if (moving && moved < 0.02) {
+      // Face move dir while walking; face player/goal when holding — no lookAt (spin)
+      if (moving) {
+        smoothBotYaw(e, e.mesh.position.x + dir.x, e.mesh.position.z + dir.z, dt);
+      } else if (isEnemy && !GAME.explore) {
+        smoothBotYaw(e, player.pos.x, player.pos.z, dt);
+      } else {
+        smoothBotYaw(e, goal.x, goal.z, dt);
+      }
+
+      // Stuck recovery — repath; soft nudge, no hard warp teleport
+      const moved = Math.hypot(e.mesh.position.x - beforeX, e.mesh.position.z - beforeZ);
+      if (moving && moved < 0.015) {
         e.stuckT = (e.stuckT || 0) + dt;
-        if (e.stuckT > 1.2) {
+        if (e.stuckT > 1.6) {
           e.stuckT = 0;
           botSetGoal(e, goal, true);
-          const graph = world.navGraph || [];
-          if (graph.length) {
-            const ni = world.nearestNav?.(e.mesh.position.x, e.mesh.position.z) ?? 0;
-            const nbs = graph[ni]?.neighbors || [];
-            if (nbs.length) {
-              const n = graph[nbs[(Math.random() * nbs.length) | 0]];
-              e.mesh.position.x = n.x;
-              e.mesh.position.z = n.z;
-              world.resolveCollision(e.mesh.position, 0.42);
-            }
-          }
+          e.mesh.position.x += (Math.random() - 0.5) * 0.8;
+          e.mesh.position.z += (Math.random() - 0.5) * 0.8;
+          world.resolveCollision(e.mesh.position, 0.38);
         }
       } else {
         e.stuckT = 0;
       }
       e.lastPos.copy(e.mesh.position);
 
-      updateBotPose(e.mesh, dt, {
-        moving,
-        aiming: !GAME.explore && distFinal < 30,
-        shootKick: e.shootKick,
-      });
+      // LOD: far bots animate every 2nd/3rd frame
+      e.lod = (e.lod || 0) + 1;
+      const distCam = camera.position.distanceTo(e.mesh.position);
+      const skipAnim = distCam > 40 ? e.lod % 3 !== 0 : distCam > 22 ? e.lod % 2 !== 0 : false;
+      if (!skipAnim) {
+        updateBotPose(e.mesh, dt * (distCam > 22 ? 2 : 1), {
+          moving,
+          aiming: !GAME.explore && round.phase === "live" && distFinal < 30,
+          shootKick: e.shootKick,
+        });
+      }
 
-      // Shoot at player (disabled in explore)
-      if (GAME.explore || !isEnemy || round.over || !armed) continue;
+      // Shoot at player (disabled in explore / buy)
+      if (GAME.explore || !isEnemy || round.over || round.phase !== "live" || !armed) continue;
       e.attackCd -= dt;
       const toPlayer = player.pos.clone().sub(e.mesh.position);
       const pDist = toPlayer.length();
@@ -844,7 +1061,7 @@ export function createGame({
     }
 
     // Ally shooting at enemies
-    if (!GAME.explore && !isEnemy) {
+    if (!GAME.explore && !isEnemy && round.phase === "live") {
       for (const a of list) {
         if (!a.alive || round.over) continue;
         a.attackCd -= dt;
@@ -879,8 +1096,30 @@ export function createGame({
     last = t;
     time += dt;
 
-    // Timers
-    if (!round.over) {
+    // Timers / phases
+    if (round.phase === "end") {
+      round.endTimer -= dt;
+      if (round.endTimer <= 0) {
+        if (round.pendingMatchEnd) {
+          const result = round.pendingMatchEnd;
+          round.pendingMatchEnd = null;
+          try {
+            document.exitPointerLock?.();
+          } catch {}
+          onEnd?.({ ...result, team });
+        } else {
+          startNextRound();
+        }
+      }
+    } else if (round.phase === "buy") {
+      round.buyLeft -= dt;
+      if (round.buyLeft <= 0) {
+        round.phase = "live";
+        round.buyLeft = 0;
+        onToast?.("Round live");
+        pushHud({ roundBanner: null });
+      }
+    } else if (!round.over) {
       if (bomb.state === "planted") {
         bomb.fuseLeft -= dt;
         const blinkHz = bomb.fuseLeft < 10 ? 8 : bomb.fuseLeft < 20 ? 4 : 2;
@@ -925,6 +1164,14 @@ export function createGame({
       // Always advance bots (Idle/Walk) — don't leave CDN soldiers in T-pose pre-lock
       updateBotList(enemies, true, dt);
       updateBotList(allies, false, dt);
+      separateAgents([enemies, allies]);
+      for (const e of enemies) {
+        if (e.alive) world.resolveCollision(e.mesh.position, 0.38);
+      }
+      for (const e of allies) {
+        if (e.alive) world.resolveCollision(e.mesh.position, 0.38);
+      }
+      updateNametags();
       if (armed) {
         if (!player.dead) {
           pollWeaponHotkeys();
@@ -1093,10 +1340,12 @@ export function createGame({
         return !!gun?.userData?.gun?.visible;
       },
     };
+    // Prefer CSP / cspApi — some runners hide __-prefixed window keys
+    window.CSP = debugApi;
+    window.cspApi = debugApi;
     window.__csp = debugApi;
     globalThis.__csp = debugApi;
-    window.CSP = debugApi;
-    // Also hang off the canvas — some automation worlds miss window.* from modules
+    globalThis.CSP = debugApi;
     try {
       canvas.__csp = debugApi;
       canvas.setAttribute("data-csp", "1");
@@ -1104,7 +1353,104 @@ export function createGame({
       /* ignore */
     }
     document.documentElement.dataset.cspReady = "1";
+    document.documentElement.dataset.cspEnemies = String(enemies.length);
+    document.documentElement.dataset.cspAllies = String(allies.length);
     document.body?.setAttribute("data-csp-live", "1");
+
+    // DOM command bus — automation worlds that can't see window.CSP can still drive
+    const onCspCmd = (ev) => {
+      const d = ev.detail || {};
+      const op = d.op;
+      if (op === "pose") debugApi.pose(d.x, d.z, d.yaw ?? 0, d.pitch ?? 0);
+      else if (op === "plant") debugApi.plantAt(d.site || "A");
+      else if (op === "pump") {
+        const n = d.n || 10;
+        for (let i = 0; i < n; i++) pump(performance.now() + i * 16);
+      } else if (op === "live") {
+        round.phase = "live";
+        round.buyLeft = 0;
+      } else if (op === "endRound") endRound(!!d.win, d.reason || "Debug end");
+      else if (op === "nextRound") {
+        round.endTimer = 0.01;
+        round.phase = "end";
+        round.over = true;
+      } else if (op === "killEnemies") {
+        for (const e of enemies) {
+          e.alive = false;
+          e.mesh.visible = false;
+          if (e.tagEl) e.tagEl.style.display = "none";
+        }
+        checkElim();
+      } else if (op === "arrange" || op === "showcase") {
+        // Mid-distance 4–6 bots for proofs — rest parked far off-camera
+        const base = player.pos;
+        const fx = -Math.sin(player.yaw);
+        const fz = -Math.cos(player.yaw);
+        const rx = Math.cos(player.yaw);
+        const rz = -Math.sin(player.yaw);
+        const show = [];
+        for (const e of allies) if (e.alive && show.length < 3) show.push(e);
+        for (const e of enemies) if (e.alive && show.length < 6) show.push(e);
+        const all = [...allies, ...enemies].filter((e) => e.alive);
+        for (const e of all) {
+          if (show.includes(e)) continue;
+          e.mesh.position.set(base.x + rx * 40, 0, base.z + rz * 40);
+          e.path = null;
+          e.speed = 0;
+          if (e.tagEl) e.tagEl.style.display = "none";
+        }
+        show.forEach((e, i) => {
+          const col = i - (show.length - 1) / 2;
+          const dist = 7.5;
+          e.mesh.position.set(
+            base.x + fx * dist + rx * col * 2.35,
+            0,
+            base.z + fz * dist + rz * col * 2.35
+          );
+          e.path = null;
+          e.speed = 0;
+          e.home = e.mesh.position.clone();
+          e.yaw = player.yaw + Math.PI;
+          e.mesh.rotation.y = e.yaw;
+          e.mesh.userData.holdIdle?.() || e.mesh.userData.setAnim?.("idle");
+        });
+        round.phase = "buy";
+        round.buyLeft = 8;
+        for (let i = 0; i < 40; i++) pump(performance.now() + i * 16);
+      } else if (op === "snapshot") {
+        const sample = enemies[0] || allies[0];
+        let mats = [];
+        let bones = [];
+        let anim = null;
+        if (sample?.mesh) {
+          sample.mesh.traverse((o) => {
+            if (o.isMesh && mats.length < 8) {
+              const m = Array.isArray(o.material) ? o.material[0] : o.material;
+              mats.push({ n: o.name, c: m?.color?.getHexString?.(), skinned: !!o.isSkinnedMesh });
+            }
+            if (o.isBone && /arm|leg|shoulder/i.test(o.name) && bones.length < 8) {
+              bones.push({ n: o.name, s: [o.scale.x, o.scale.y, o.scale.z].map((v) => +v.toFixed(3)) });
+            }
+          });
+          anim = sample.mesh.userData?.mixer?._actions?.filter((a) => a.isRunning()).map((a) => a.getClip()?.name) || null;
+        }
+        document.documentElement.dataset.cspSnap = JSON.stringify({
+          phase: round.phase,
+          number: round.number,
+          over: round.over,
+          score: { ...score },
+          bomb: bomb.state,
+          enemies: enemies.filter((e) => e.alive).length,
+          allies: allies.filter((e) => e.alive).length,
+          gltf: !!sample?.mesh?.userData?.gltf,
+          mats,
+          bones,
+          anim,
+        });
+      }
+    };
+    document.addEventListener("csp-cmd", onCspCmd);
+    debugApi._onCspCmd = onCspCmd;
 
     const loop = (t) => {
       pump(t);
@@ -1144,14 +1490,26 @@ export function createGame({
   function destroy() {
     stop();
     input?.dispose?.();
-    for (const e of enemies) scene?.remove(e.mesh);
-    for (const e of allies) scene?.remove(e.mesh);
+    try {
+      const h = window.CSP?._onCspCmd || window.cspApi?._onCspCmd;
+      if (h) document.removeEventListener("csp-cmd", h);
+    } catch {
+      /* ignore */
+    }
+    for (const e of enemies) {
+      e.tagEl?.remove();
+      scene?.remove(e.mesh);
+    }
+    for (const e of allies) {
+      e.tagEl?.remove();
+      scene?.remove(e.mesh);
+    }
+    clearNametags();
     for (const b of bullets) scene?.remove(b.mesh);
     if (bombMesh) scene?.remove(bombMesh);
     world?.dispose();
     if (gun && camera) camera.remove(gun);
     renderer?.dispose();
-    // Keep window.__csp for capture tooling; next start() replaces it
   }
 
   function onResize() {

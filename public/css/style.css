@@ -231,9 +231,132 @@ h1 {
     calc(10px + var(--spread) * 2) 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
+#nametag-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  overflow: hidden;
+}
+
+.nametag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85), 0 0 8px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.nametag[data-team="t"] {
+  color: #f0a060;
+}
+
+.nametag[data-team="ct"] {
+  color: #7eb8f0;
+}
+
+.nametag[data-ally="1"] .nametag-name::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+  opacity: 0.9;
+}
+
+.scoreboard {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 16px;
+  background: rgba(8, 14, 22, 0.72);
+  border: 1px solid rgba(140, 190, 230, 0.28);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  z-index: 2;
+}
+
+.score-t {
+  color: var(--t);
+  font-size: 22px;
+  font-weight: 700;
+  min-width: 1.4em;
+  text-align: right;
+}
+
+.score-ct {
+  color: var(--ct);
+  font-size: 22px;
+  font-weight: 700;
+  min-width: 1.4em;
+  text-align: left;
+}
+
+.score-mid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.score-sep {
+  opacity: 0.5;
+}
+
+.round-banner {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  padding: 14px 28px;
+  background: rgba(8, 14, 22, 0.82);
+  border: 1px solid rgba(140, 190, 230, 0.35);
+  z-index: 3;
+  pointer-events: none;
+}
+
+.round-banner[hidden] {
+  display: none;
+}
+
+.round-banner-title {
+  font-size: clamp(22px, 5vw, 34px);
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.round-banner-sub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.player-chip {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid rgba(140, 190, 230, 0.25);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
 .hud-top {
   position: absolute;
-  top: 16px;
+  top: 52px;
   left: 16px;
   right: 16px;
   display: flex;
@@ -241,6 +364,24 @@ h1 {
   gap: 12px;
   font-size: 13px;
   letter-spacing: 0.04em;
+}
+
+@media (max-width: 640px) {
+  .scoreboard {
+    gap: 10px;
+    padding: 5px 12px;
+  }
+  .score-t,
+  .score-ct {
+    font-size: 18px;
+  }
+  .hud-top {
+    top: 48px;
+    font-size: 12px;
+  }
+  .nametag {
+    font-size: 11px;
+  }
 }
 
 .hud-bottom {

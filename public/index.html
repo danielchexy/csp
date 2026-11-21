@@ -23,12 +23,28 @@
   <body>
     <canvas id="game-canvas"></canvas>
 
+    <div id="nametag-layer" aria-hidden="true"></div>
+
     <div id="hud">
       <div class="damage-vignette" id="damage-vignette"></div>
       <div class="crosshair"></div>
+      <div class="scoreboard" id="scoreboard">
+        <span class="score-t" id="score-t">0</span>
+        <span class="score-mid">
+          <span id="round-num">R1</span>
+          <span class="score-sep">·</span>
+          <span id="score-clock">1:45</span>
+        </span>
+        <span class="score-ct" id="score-ct">0</span>
+      </div>
+      <div class="round-banner" id="round-banner" hidden>
+        <div class="round-banner-title" id="round-banner-title">ROUND</div>
+        <div class="round-banner-sub" id="round-banner-sub"></div>
+      </div>
       <div class="hud-top">
         <div>
           CSP · <span id="team-badge" data-team="t">T</span>
+          <span class="player-chip" id="player-chip">Player</span>
         </div>
         <div class="objective" id="objective">Plant or defuse</div>
       </div>
@@ -62,8 +78,12 @@
         <div class="brand">BROWSER FPS</div>
         <h1>CSP</h1>
         <p class="tagline">
-          Daytime bomb · T plant / CT defuse · buy guns · guest play.
+          Daytime bomb · 10v10 bots · first to 5 · T plant / CT defuse.
         </p>
+        <div class="field" style="margin-bottom: 12px">
+          <label for="display-name">Display name</label>
+          <input id="display-name" maxlength="16" placeholder="Player" autocomplete="nickname" />
+        </div>
         <div class="loadout-chip" id="menu-loadout">Loadout · Glock-18</div>
         <div class="stack">
           <button class="btn primary team-t" id="btn-play-t" type="button">Play as Terrorist (T)</button>
@@ -161,6 +181,6 @@
       </div>
     </div>
 
-    <script type="module" src="./js/main.js?v=csp52"></script>
+    <script type="module" src="./js/main.js?v=csp62"></script>
   </body>
 </html>
