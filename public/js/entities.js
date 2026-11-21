@@ -5,8 +5,8 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 /**
- * Shared Quaternius SWAT humanoid (CC0 via Poly Pizza) — meshopt ~475KB
- * (~200KB gzip). One GLB for all bots; T/CT tint at runtime. No texture atlas.
+ * Shared Quaternius Character Soldier (CC0) — meshopt ~337KB (~160KB gzip).
+ * One GLB for all bots; tactical kit + T/CT tint at runtime. No texture atlas.
  */
 const SOLDIER_URL = "./models/soldier.glb";
 
@@ -148,34 +148,41 @@ function findBone(root, re) {
   return found;
 }
 
-/** Replace materials entirely — T tan / CT navy (avoid dark SWAT blob) */
-function tintSoldierTeam(root, team) {
+/** Hide prop weapons; paint suit T tan / CT navy; skin → balaclava */
+function dressSoldierBase(root, team) {
   const isCT = team === "ct";
   const mk = (hex, rough = 0.78, metal = 0.06) =>
     new THREE.MeshStandardMaterial({
       color: hex,
       roughness: rough,
       metalness: metal,
-      envMapIntensity: 0.55,
+      envMapIntensity: 0.5,
       emissive: hex,
-      emissiveIntensity: 0.1,
+      emissiveIntensity: 0.06,
     });
-  const suit = mk(isCT ? 0x5a7a98 : 0xd4ae70, 0.76, 0.05);
-  const pants = mk(isCT ? 0x3a4c5c : 0x8a6e4c, 0.84, 0.04);
-  const kit = mk(isCT ? 0x2e3c4c : 0x4a3c30, 0.62, 0.18);
-  const skin = mk(0xe0b898, 0.7, 0.02);
-  const pick = (label) => {
-    const n = (label || "").toLowerCase();
-    if (/skin|face|hand/.test(n)) return skin;
-    if (/pant|brown|leg|boot|shoe|feet/.test(n)) return pants;
-    if (/black|dark|hair|grey|gray|helm|vest|gear/.test(n)) return kit;
-    if (/swat|body|suit/.test(n)) return suit;
-    return suit;
-  };
+  const suit = mk(isCT ? 0x3a5168 : 0xa88858, 0.8, 0.05);
+  const pants = mk(isCT ? 0x2a3848 : 0x6a5640, 0.86, 0.04);
+  const kit = mk(isCT ? 0x1c2834 : 0x3a3228, 0.62, 0.2);
+  const balaclava = mk(0x141612, 0.9, 0.03);
+  const pad = mk(isCT ? 0x2a3848 : 0x5a4a36, 0.7, 0.12);
+
   root.traverse((o) => {
     if (!o.isMesh) return;
+    const n = `${o.name || ""} ${o.material?.name || ""}`.toLowerCase();
+    // Drop backpack weapon props — keep Body / Head / ShoulderPad only
+    if (/revolver|sniper|pistol|smg|grenade|cannon|shotgun|rocket|ak|shovel|knife/.test(n)) {
+      o.visible = false;
+      return;
+    }
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    const next = mats.map((m) => pick(`${m?.name || ""} ${o.name || ""}`));
+    const next = mats.map((m) => {
+      const label = `${m?.name || ""} ${o.name || ""}`.toLowerCase();
+      if (/skin|face|hand|head/.test(label) && !/shoulder/.test(label)) return balaclava;
+      if (/pant|brown|leg|boot|feet/.test(label)) return pants;
+      if (/shoulder|pad|black|dark|grey|gray|wood|red/.test(label)) return pad;
+      if (/character_main|swat|body|suit|lightgrey|grey2/.test(label)) return suit;
+      return kit;
+    });
     o.material = next.length === 1 ? next[0] : next;
     if (o.geometry?.attributes?.color) o.geometry.deleteAttribute("color");
     o.castShadow = true;
@@ -184,46 +191,74 @@ function tintSoldierTeam(root, team) {
   });
 }
 
-/** Team accents — bone-local units (Root scale≈100 → 0.002 ≈ 0.2m world) */
-function attachTeamAccents(root, team) {
+/**
+ * Full tactical kit in bone-local cm (Root scale≈100 → local 0.001 = 0.1m world).
+ * Helmet + balaclava shell + plate carrier + pouches + pack.
+ */
+function attachOperatorKit(root, team) {
   const k = kitMats(team);
-  const chest = findBone(root, /torso|chest|spine/i);
+  const chest =
+    findBone(root, /torso|chest/i) || findBone(root, /spine/i) || findBone(root, /abdomen/i);
   const head = findBone(root, /^head$/i) || findBone(root, /head/i);
-  const upperArm = findBone(root, /upperarm\.(r|l)|shoulder\.(r|l)/i);
-  const u = 0.0001; // 1cm world: local*RootScale100
+  // 0.001 local ≈ 0.1m world under Root×100
+  const U = 0.001;
+
+  if (head) {
+    // Hide stock head mesh under helm/mask
+    root.traverse((o) => {
+      if (o.isMesh && /^head$/i.test(o.name || "")) o.visible = false;
+    });
+    const kitG = new THREE.Group();
+    // Ballistic helm — local×100 ≈ world meters (Root scale)
+    const helmM = new THREE.Mesh(rb(2.4 * U, 1.1 * U, 2.6 * U, 0.2 * U), k.helm);
+    helmM.position.set(0, 1.2 * U, 0.15 * U);
+    const brim = new THREE.Mesh(rb(2.2 * U, 0.35 * U, 0.7 * U, 0.08 * U), k.helm);
+    brim.position.set(0, 0.55 * U, 1.1 * U);
+    const nvg = new THREE.Mesh(rb(0.9 * U, 0.45 * U, 0.8 * U, 0.08 * U), k.gunDark);
+    nvg.position.set(0, 1.55 * U, 0.9 * U);
+    // Balaclava / mask covering face
+    const mask = new THREE.Mesh(rb(2.0 * U, 1.6 * U, 1.8 * U, 0.25 * U), k.mask);
+    mask.position.set(0, 0.2 * U, 0.2 * U);
+    const goggles = new THREE.Mesh(rb(1.8 * U, 0.45 * U, 0.55 * U, 0.08 * U), k.gunDark);
+    goggles.position.set(0, 0.55 * U, 1.05 * U);
+    kitG.add(helmM, brim, nvg, mask, goggles);
+    if (k.isCT) {
+      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * U, 0.08 * U, 0.7 * U, 6), k.gunDark);
+      mic.rotation.z = Math.PI / 2;
+      mic.position.set(1.1 * U, 0.3 * U, 0.4 * U);
+      kitG.add(mic);
+    } else {
+      const wrap = new THREE.Mesh(rb(2.3 * U, 0.6 * U, 1.5 * U, 0.15 * U), k.accent);
+      wrap.position.set(0, -0.5 * U, -0.1 * U);
+      kitG.add(wrap);
+    }
+    kitG.position.set(0, 0.5 * U, 0);
+    head.add(kitG);
+  }
 
   if (chest) {
-    const plate = new THREE.Mesh(rb(22 * u, 28 * u, 8 * u, 0.12 * u), k.plate);
-    plate.position.set(0, 8 * u, 14 * u);
-    chest.add(plate);
-    const band = new THREE.Mesh(rb(24 * u, 4.5 * u, 20 * u, 0.1 * u), k.accent);
-    band.position.set(0, -6 * u, 12 * u);
-    chest.add(band);
+    const vest = new THREE.Group();
+    // Plate carrier bulk
+    const carrier = new THREE.Mesh(rb(3.2 * U, 3.4 * U, 1.4 * U, 0.15 * U), k.vest);
+    carrier.position.set(0, 0.2 * U, 0.85 * U);
+    const plate = new THREE.Mesh(rb(2.2 * U, 2.6 * U, 0.45 * U, 0.08 * U), k.plate);
+    plate.position.set(0, 0.3 * U, 1.45 * U);
+    const band = new THREE.Mesh(rb(3.3 * U, 0.45 * U, 1.3 * U, 0.08 * U), k.accent);
+    band.position.set(0, -1.2 * U, 0.9 * U);
+    vest.add(carrier, plate, band);
     for (let i = -1; i <= 1; i++) {
-      const pouch = new THREE.Mesh(rb(5.5 * u, 7 * u, 4.5 * u, 0.08 * u), k.strap);
-      pouch.position.set(i * 6 * u, -10 * u, 16 * u);
-      chest.add(pouch);
+      const pouch = new THREE.Mesh(rb(0.75 * U, 0.9 * U, 0.55 * U, 0.08 * U), k.strap);
+      pouch.position.set(i * 0.85 * U, -1.5 * U, 1.55 * U);
+      vest.add(pouch);
     }
-  }
-  if (head) {
-    const helm = new THREE.Mesh(rb(20 * u, 10 * u, 22 * u, 0.2 * u), k.helm);
-    helm.position.set(0, 14 * u, 2 * u);
-    const visor = new THREE.Mesh(rb(16 * u, 4 * u, 6 * u, 0.08 * u), k.mask);
-    visor.position.set(0, 6 * u, 12 * u);
-    const mask = new THREE.Mesh(rb(14 * u, 8 * u, 10 * u, 0.15 * u), k.mask);
-    mask.position.set(0, 2 * u, 10 * u);
-    head.add(helm, visor, mask);
-    if (k.isCT) {
-      const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.8 * u, 0.8 * u, 6 * u, 6), k.gunDark);
-      mic.rotation.z = Math.PI / 2;
-      mic.position.set(10 * u, 4 * u, 4 * u);
-      head.add(mic);
-    }
-  }
-  if (upperArm) {
-    const stripe = new THREE.Mesh(rb(7 * u, 6 * u, 4 * u, 0.08 * u), k.accent);
-    stripe.position.set(0, 4 * u, 5 * u);
-    upperArm.add(stripe);
+    const pack = new THREE.Mesh(rb(2.6 * U, 2.8 * U, 1.0 * U, 0.15 * U), k.vest);
+    pack.position.set(0, 0.2 * U, -1.1 * U);
+    vest.add(pack);
+    const radio = new THREE.Mesh(rb(0.45 * U, 0.9 * U, 0.35 * U, 0.06 * U), k.gunDark);
+    radio.position.set(k.isCT ? 1.4 * U : -1.4 * U, 0.6 * U, -0.2 * U);
+    vest.add(radio);
+    vest.position.set(0, 0.5 * U, 0);
+    chest.add(vest);
   }
 }
 
@@ -236,8 +271,12 @@ function wireSoldierAnims(root, gltf) {
     clips[clip.name] = clip;
   }
   const idleClip =
-    clips.idle_gun || clips["idle_gun"] || clips.idle || clips.idle_neutral || gltf.animations?.[0];
-  const walkClip = clips.walk || clips.run || idleClip;
+    clips.idle_shoot ||
+    clips.idle_gun ||
+    clips.idle ||
+    clips.idle_neutral ||
+    gltf.animations?.[0];
+  const walkClip = clips.run_gun || clips.walk || clips.run || idleClip;
   let current = null;
   const play = (key) => {
     const clip = key === "walk" ? walkClip : idleClip;
@@ -259,7 +298,7 @@ function wireSoldierAnims(root, gltf) {
   };
 }
 
-/** Quaternius SWAT operator — shared GLB, T/CT tint. Procedural fallback if missing. */
+/** Quaternius Character Soldier + tactical kit. Shared GLB, T/CT tint. */
 export function createBot(team = "t") {
   if (soldierGltf) return createSoldierBot(team, soldierGltf);
   return createProceduralBot(team);
@@ -268,12 +307,12 @@ export function createBot(team = "t") {
 function createSoldierBot(team, gltf) {
   const g = new THREE.Group();
   const model = cloneSkinned(gltf.scene);
-  // Quaternius FBX: Root node scale≈100 already brings cm→m. Leave scene scale 1.
+  // Quaternius FBX: Root scale≈100 already brings cm→m.
   g.add(model);
 
-  tintSoldierTeam(model, team);
+  dressSoldierBase(model, team);
+  attachOperatorKit(model, team);
   const anim = wireSoldierAnims(model, gltf);
-  // Pose once so skinned bounds settle
   anim.mixer.update(0.016);
 
   const hit = new THREE.Mesh(
